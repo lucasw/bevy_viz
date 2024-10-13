@@ -2,7 +2,7 @@
 
 use bevy::{
     prelude::*,
-    render::mesh::{Indices, PrimitiveTopology},
+    render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
 struct ModifyVerts {
@@ -13,20 +13,33 @@ impl ModifyVerts {
     fn update_mesh(
         &mut self,
         time: Res<Time>,
-        mut query: Query<&mut Transform, &Handle<Mesh>>,
-        _assets: ResMut<Assets<Mesh>>,
+        query: Query<(&Transform, &Handle<Mesh>)>,
+        mut assets: ResMut<Assets<Mesh>>,
     ) {
-        self.i += 1;
-        if self.i % 30 == 0 {
+        if self.i % 60 == 0 {
             println!("update {:.3}", time.elapsed_seconds());
         }
-        for mut _transform in &mut query {
+        for (_transform, handle) in &query {
+            let mesh = assets.get_mut(handle.id());
+            if let Some(mesh) = mesh {
+                let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION);
+                if let Some(VertexAttributeValues::Float32x3(positions)) = positions {
+                    /*
+                    if self.i % 180 == 0 {
+                        println!("{positions:?}");
+                    }
+                    */
+                    let mut new_positions = Vec::new();
+                    for pos in positions {
+                        new_positions.push([pos[0] * 0.999, pos[1], pos[2]]);
+                    }
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
+                }
+            }
             // transform.translation.x = time.elapsed_seconds().sin();
             // transform.rotation = Quat::from_rotation_z(FRAC_PI_2 * time.elapsed_seconds().sin());
         }
-
-        // for mut mesh in assets {
-        // }
+        self.i += 1;
     }
 }
 
@@ -40,7 +53,7 @@ fn main() {
             Update,
             (
                 move |tm: Res<Time>,
-                      qr: Query<&mut Transform, &Handle<Mesh>>,
+                      qr: Query<(&Transform, &Handle<Mesh>)>,
                       at: ResMut<Assets<Mesh>>| {
                     modify_verts.update_mesh(tm, qr, at)
                 },
