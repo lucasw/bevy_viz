@@ -5,6 +5,9 @@ use bevy::{
     render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
 
+#[derive(Component)]
+struct AnimatedPosition;
+
 struct ModifyVerts {
     i: u64,
 }
@@ -13,12 +16,12 @@ impl ModifyVerts {
     fn update_mesh(
         &mut self,
         time: Res<Time>,
-        query: Query<(&Transform, &Handle<Mesh>)>,
+        query: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
         mut assets: ResMut<Assets<Mesh>>,
     ) {
-        if self.i % 60 == 0 {
-            println!("update {:.3}", time.elapsed_seconds());
-        }
+        // if self.i % 60 == 0 {
+        //     println!("update {:.3}", time.elapsed_seconds());
+        // }
         for (_transform, handle) in &query {
             let mesh = assets.get_mut(handle.id());
             if let Some(mesh) = mesh {
@@ -31,7 +34,11 @@ impl ModifyVerts {
                     */
                     let mut new_positions = Vec::new();
                     for pos in positions {
-                        new_positions.push([pos[0] * 0.999, pos[1], pos[2]]);
+                        new_positions.push([
+                            pos[0] * (1.0 + 0.01 * time.elapsed_seconds().sin()),
+                            pos[1],
+                            pos[2],
+                        ]);
                     }
                     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
                 }
@@ -53,7 +60,7 @@ fn main() {
             Update,
             (
                 move |tm: Res<Time>,
-                      qr: Query<(&Transform, &Handle<Mesh>)>,
+                      qr: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
                       at: ResMut<Assets<Mesh>>| {
                     modify_verts.update_mesh(tm, qr, at)
                 },
@@ -206,11 +213,14 @@ fn setup(
     for mesh_colors in mc {
         for (mesh, color) in mesh_colors {
             let mesh = meshes.add(mesh);
-            commands.spawn(PbrBundle {
-                mesh,
-                material: materials.add(color.into()),
-                ..default()
-            });
+            commands.spawn((
+                AnimatedPosition,
+                PbrBundle {
+                    mesh,
+                    material: materials.add(color.into()),
+                    ..default()
+                },
+            ));
         }
     }
 }
