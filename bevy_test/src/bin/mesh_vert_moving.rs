@@ -10,6 +10,7 @@ struct AnimatedPosition;
 
 struct ModifyVerts {
     i: u64,
+    raw_meshes: Vec<Vec<(Mesh, Color)>>,
 }
 
 impl ModifyVerts {
@@ -24,14 +25,12 @@ impl ModifyVerts {
         // }
         for (_transform, handle) in &query {
             let mesh = assets.get_mut(handle.id());
+            // println!("{:?}", handle.id());
             if let Some(mesh) = mesh {
                 let positions = mesh.attribute(Mesh::ATTRIBUTE_POSITION);
                 if let Some(VertexAttributeValues::Float32x3(positions)) = positions {
-                    /*
-                    if self.i % 180 == 0 {
-                        println!("{positions:?}");
-                    }
-                    */
+                    // if self.i % 180 == 0 {
+                    // }
                     let mut new_positions = Vec::new();
                     for pos in positions {
                         new_positions.push([
@@ -48,14 +47,51 @@ impl ModifyVerts {
         }
         self.i += 1;
     }
+
+    fn setup(&mut self) {
+        let mc = vec![
+            setup_rect(-1.0, 3.0, -1.0, 0.05, 1.0, 0.1),
+            setup_rect(-1.0, 3.0, 1.0, 0.05, 1.0, 0.1),
+            setup_rect(1.0, 3.0, -1.0, 0.05, 1.0, 0.1),
+            setup_rect(1.0, 3.0, 1.0, 0.05, 1.0, 0.1),
+            setup_rect(0.0, 2.0, -1.0, 1.0, 0.05, 0.12),
+            setup_rect(0.0, 2.0, 1.0, 1.0, 0.05, 0.12),
+            setup_rect(0.0, 4.0, -1.0, 1.0, 0.05, 0.12),
+            setup_rect(0.0, 4.0, 1.0, 1.0, 0.05, 0.12),
+            setup_rect(-1.0, 2.0, 0.0, 0.05, 0.05, 1.0),
+            setup_rect(1.0, 2.0, 0.0, 0.05, 0.05, 1.0),
+            setup_rect(-1.0, 4.0, 0.0, 0.05, 0.05, 1.0),
+            setup_rect(1.0, 4.0, 0.0, 0.05, 0.05, 1.0),
+        ];
+
+        let mut num_meshes = 0;
+        for mesh_colors in &mc {
+            num_meshes += mesh_colors.len();
+        }
+        println!("created {num_meshes} meshes for modify verts");
+        self.raw_meshes = mc;
+    }
 }
 
 fn main() {
-    let mut modify_verts = ModifyVerts { i: 0 };
+    let mut modify_verts = ModifyVerts {
+        i: 0,
+        raw_meshes: Vec::new(),
+    };
+    modify_verts.setup();
+    // TODO(lucasw) double clone seems wrong, but it works
+    let raw_meshes = modify_verts.raw_meshes.clone();
 
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
+        .add_systems(
+            Startup,
+            move |commands: Commands,
+                  meshes: ResMut<Assets<Mesh>>,
+                  materials: ResMut<Assets<StandardMaterial>>| {
+                setup(raw_meshes.clone(), commands, meshes, materials);
+            },
+        )
         .add_systems(
             Update,
             (
@@ -161,6 +197,7 @@ fn setup_rect(x0: f32, y0: f32, z0: f32, wd: f32, ht: f32, dp: f32) -> Vec<(Mesh
 }
 
 fn setup(
+    raw_meshes: Vec<Vec<(Mesh, Color)>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -187,40 +224,30 @@ fn setup(
         ..default()
     });
 
+    for mesh_colors in raw_meshes {
+        for (mesh, color) in mesh_colors {
+            let mesh = meshes.add(mesh);
+
+            // TODO(lucasw) modify_vert needs to know about these mesh ids,
+            // but not sure how to get them across
+            println!("id {:?}", mesh.id());
+            let _ = commands
+                .spawn((
+                    AnimatedPosition,
+                    PbrBundle {
+                        mesh,
+                        material: materials.add(color.into()),
+                        ..default()
+                    },
+                ))
+                .id();
+        }
+    }
+
     // ground plane
     commands.spawn(PbrBundle {
         mesh: meshes.add(shape::Plane::from_size(50.).into()),
         material: materials.add(Color::SILVER.into()),
         ..default()
     });
-
-    let mut mc = Vec::new();
-    mc.push(setup_rect(-1.0, 3.0, -1.0, 0.05, 1.0, 0.1));
-    mc.push(setup_rect(-1.0, 3.0, 1.0, 0.05, 1.0, 0.1));
-    mc.push(setup_rect(1.0, 3.0, -1.0, 0.05, 1.0, 0.1));
-    mc.push(setup_rect(1.0, 3.0, 1.0, 0.05, 1.0, 0.1));
-
-    mc.push(setup_rect(0.0, 2.0, -1.0, 1.0, 0.05, 0.12));
-    mc.push(setup_rect(0.0, 2.0, 1.0, 1.0, 0.05, 0.12));
-    mc.push(setup_rect(0.0, 4.0, -1.0, 1.0, 0.05, 0.12));
-    mc.push(setup_rect(0.0, 4.0, 1.0, 1.0, 0.05, 0.12));
-
-    mc.push(setup_rect(-1.0, 2.0, 0.0, 0.05, 0.05, 1.0));
-    mc.push(setup_rect(1.0, 2.0, 0.0, 0.05, 0.05, 1.0));
-    mc.push(setup_rect(-1.0, 4.0, 0.0, 0.05, 0.05, 1.0));
-    mc.push(setup_rect(1.0, 4.0, 0.0, 0.05, 0.05, 1.0));
-
-    for mesh_colors in mc {
-        for (mesh, color) in mesh_colors {
-            let mesh = meshes.add(mesh);
-            commands.spawn((
-                AnimatedPosition,
-                PbrBundle {
-                    mesh,
-                    material: materials.add(color.into()),
-                    ..default()
-                },
-            ));
-        }
-    }
 }
