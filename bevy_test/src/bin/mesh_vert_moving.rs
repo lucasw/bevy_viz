@@ -10,7 +10,7 @@ use nalgebra::base::{Vector3, Vector4};
 struct AnimatedPosition;
 
 struct Beams4D {
-    _i: u64,
+    i: u64,
     // list of points that make up triangle lists
     points_4d: Vec<Vec<Vector4<f64>>>,
 }
@@ -196,12 +196,32 @@ impl Beams4D {
     }
 
     // get points and a normal
-    fn points_to_3d(points_4d: &Vec<Vector4<f64>>) -> (Vec<Vec3>, Vec<f32>) {
+    fn points_to_3d(points_4d: &Vec<Vector4<f64>>, rot_xw: f64, rot_yw: f64, rot_zw: f64) -> (Vec<Vec3>, Vec<f32>) {
         let mut points_3d_vec = Vec::new();
         let mut points_3d = Vec::new();
 
+        let mat_xw = nalgebra::base::Matrix4::new(
+            rot_xw.cos(), 0., 0., rot_xw.sin(),
+            0., 1.0, 0., 0.,
+            0., 0., 1.0, 0.,
+            -rot_xw.sin(), 0., 0., rot_xw.cos());
+
+        let mat_yw = nalgebra::base::Matrix4::new(
+            1.0, 0., 0., 0.,
+            0., rot_xw.cos(),  0., rot_xw.sin(),
+            0., 0., 1.0, 0.,
+            0., -rot_xw.sin(), 0., rot_xw.cos());
+
+        let mat_zw = nalgebra::base::Matrix4::new(
+            1.0, 0., 0., 0.,
+            0., 1.0, 0., 0.,
+            0., 0., rot_xw.cos(), rot_xw.sin(),
+            0., 0., -rot_xw.sin(), rot_xw.cos());
+
         for pt4 in points_4d {
-            let sc = 1.0 / (1.0 + pt4[3].abs());
+            let pt4 = mat_xw * mat_yw * mat_zw * pt4;
+
+            let sc = 3.0 / (3.0 + pt4[3].abs());
             let pt = Vector3::new(pt4[0] * sc, pt4[1] * sc, pt4[2] * sc);
             points_3d.push(Vec3::new(pt[0] as f32, pt[1] as f32, pt[2] as f32));
             points_3d_vec.push(pt);
@@ -212,15 +232,6 @@ impl Beams4D {
         // let normal = v0.cross(&v1);
         let normal = v1.cross(&v0);
 
-        /*
-        let points_3d = [
-            points_3d[0],
-            points_3d[1],
-            points_3d[2],
-            points_3d[3],
-        ];
-        */
-
         (
             points_3d,
             vec![normal[0] as f32, normal[1] as f32, normal[2] as f32],
@@ -230,8 +241,12 @@ impl Beams4D {
     fn get_meshes(&self) -> Vec<(Mesh, Color)> {
         let mut meshes_colors = Vec::new();
 
+        let rot_xw = 0.0;
+        let rot_yw = 0.0;
+        let rot_zw = 0.0;
+
         for (ind, pts4d) in self.points_4d.iter().enumerate() {
-            let (points_3d, normal) = Beams4D::points_to_3d(pts4d);
+            let (points_3d, normal) = Beams4D::points_to_3d(pts4d, rot_xw, rot_yw, rot_zw);
             let num_pts = pts4d.len();
             let mesh = Mesh::new(PrimitiveTopology::TriangleList)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points_3d)
@@ -243,15 +258,14 @@ impl Beams4D {
                 .with_indices(Some(Indices::U16(vec![0, 2, 1, 1, 2, 3])));
 
             let indf = ind as f32;
-            // let color = Color::rgb((indf * 0.1) % 1.0, (1.0 - indf * 0.05) % 1.0, (indf * 0.01) % 1.0);
-            let color = Color::rgb(0.65, 0.6, 0.5);
+            let color = Color::rgb((indf * 0.1) % 1.0, (1.0 - indf * 0.05) % 1.0, (indf * 0.01) % 1.0);
+            // let color = Color::rgb(0.65, 0.6, 0.5);
             println!("{ind} {indf} {color:?}");
             meshes_colors.push((mesh, color));
         }
         meshes_colors
     }
 
-    /*
     fn update_mesh(
         &mut self,
         time: Res<Time>,
@@ -261,7 +275,13 @@ impl Beams4D {
         // if self.i % 60 == 0 {
         //     println!("update {:.3}", time.elapsed_seconds());
         // }
-        for (_transform, handle) in &query {
+        //
+        let rot_xw = self.i as f64 * 0.005;
+        let rot_yw = self.i as f64 * 0.000703;
+        let rot_zw = self.i as f64 * 0.00031;
+        println!("xw: {rot_xw:.2}, yw: {rot_yw:.2}, zw: {rot_zw:.2}");
+
+        for (ind, (_transform, handle)) in query.iter().enumerate() {
             let mesh = assets.get_mut(handle.id());
             // println!("{:?}", handle.id());
             if let Some(mesh) = mesh {
@@ -269,15 +289,10 @@ impl Beams4D {
                 if let Some(VertexAttributeValues::Float32x3(positions)) = positions {
                     // if self.i % 180 == 0 {
                     // }
-                    let mut new_positions = Vec::new();
-                    for pos in positions {
-                        new_positions.push([
-                            pos[0] * (1.0 + 0.01 * time.elapsed_seconds().sin()),
-                            pos[1],
-                            pos[2],
-                        ]);
-                    }
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, new_positions);
+                    let pts4d = &self.points_4d[ind];
+                    let (points_3d, normal) = Beams4D::points_to_3d(pts4d, rot_xw, rot_yw, rot_zw);
+                    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, points_3d);
+                    // mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normal);
                 }
             }
             // transform.translation.x = time.elapsed_seconds().sin();
@@ -285,14 +300,15 @@ impl Beams4D {
         }
         self.i += 1;
     }
-    */
 }
 
 fn main() {
     let mut beams_4d = Beams4D {
-        _i: 0,
+        i: 0,
         points_4d: Vec::new(),
     };
+
+    let woff = 1.5;
 
     // build beams of a tesseract
     for yi in 0..2 {
@@ -304,7 +320,7 @@ fn main() {
                 let ysz = 0.06;
                 let z0 = zi as f64 * 2.0 - 1.0;
                 let zsz = 0.07;
-                let w0 = 1.0 + wi as f64 * 2.0 - 1.0;
+                let w0 = woff + wi as f64 * 2.0 - 1.0;
                 let wsz = 0.08;
                 beams_4d.build_points(x0, xsz, y0, ysz, z0, zsz, w0, wsz);
             }
@@ -320,7 +336,7 @@ fn main() {
                 let ysz = 1.0;
                 let z0 = zi as f64 * 2.0 - 1.0;
                 let zsz = 0.07;
-                let w0 = 1.0 + wi as f64 * 2.0 - 1.0;
+                let w0 = woff + wi as f64 * 2.0 - 1.0;
                 let wsz = 0.08;
                 beams_4d.build_points(x0, xsz, y0, ysz, z0, zsz, w0, wsz);
             }
@@ -336,7 +352,7 @@ fn main() {
                 let ysz = 0.06;
                 let z0 = 0.0;
                 let zsz = 1.0;
-                let w0 = 1.0 + wi as f64 * 2.0 - 1.0;
+                let w0 = woff + wi as f64 * 2.0 - 1.0;
                 let wsz = 0.08;
                 beams_4d.build_points(x0, xsz, y0, ysz, z0, zsz, w0, wsz);
             }
@@ -352,7 +368,7 @@ fn main() {
                 let ysz = 0.06;
                 let z0 = zi as f64 * 2.0 - 1.0;
                 let zsz = 0.07;
-                let w0 = 1.0;
+                let w0 = woff;
                 let wsz = 1.0;
                 beams_4d.build_points(x0, xsz, y0, ysz, z0, zsz, w0, wsz);
             }
@@ -375,13 +391,11 @@ fn main() {
         .add_systems(
             Update,
             (
-                /*
                 move |tm: Res<Time>,
                       qr: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
                       at: ResMut<Assets<Mesh>>| {
                     beams_4d.update_mesh(tm, qr, at)
                 },
-                */
                 bevy_test::camera_controller,
             ),
         )
