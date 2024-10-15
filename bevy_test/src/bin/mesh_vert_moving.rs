@@ -4,16 +4,220 @@ use bevy::{
     prelude::*,
     render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
 };
+use nalgebra::base::{Vector3, Vector4};
 
 #[derive(Component)]
 struct AnimatedPosition;
 
-struct ModifyVerts {
-    i: u64,
-    raw_meshes: Vec<Vec<(Mesh, Color)>>,
+struct Beams4D {
+    _i: u64,
+    // list of points that make up triangle lists
+    points_4d: Vec<Vec<Vector4<f64>>>,
 }
 
-impl ModifyVerts {
+impl Beams4D {
+    fn build_points(&mut self) {
+        // each of these will be a plane made of four points
+        let x0 = 0.0;
+        let xsz = 0.2;
+
+        let y0 = 4.0;
+        let ysz = 0.3;
+
+        let z0 = 0.0;
+        let zsz = 0.4;
+
+        let w0 = 1.0;
+        let wsz = 1.0;
+
+        let xs = [x0 - xsz, x0 + xsz];
+        let ys = [y0 - ysz, y0 + ysz];
+        let zs = [z0 - zsz, z0 + zsz];
+        let ws = [w0 - wsz, w0 + wsz];
+
+        // for every plane there are two dimensions, so 6 planes total:
+        // xy, xz, xw, yz, yw, zw
+
+        // TODO(lucasw) later make 4 of each, for all combinations of the other two dimensions
+        // fixed
+        // TODO(lucasw) could make a nested for loop for these if xs..ws were also in an array
+        let xy0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[0]),
+        ];
+        let xy1 = vec![
+            Vector4::new(xs[0], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[0]),
+        ];
+        let xy2 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[1]),
+        ];
+        let xy3 = vec![
+            Vector4::new(xs[0], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[1]),
+        ];
+
+        let xz0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[0]),
+        ];
+        let xz1 = vec![
+            Vector4::new(xs[0], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[0]),
+        ];
+        let xz2 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[1]),
+        ];
+        let xz3 = vec![
+            Vector4::new(xs[0], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[1]),
+        ];
+
+        let xw0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[0], ws[1]),
+        ];
+        let xw1 = vec![
+            Vector4::new(xs[0], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[1]),
+        ];
+        let xw2 = vec![
+            Vector4::new(xs[0], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[1]),
+        ];
+        let xw3 = vec![
+            Vector4::new(xs[0], ys[1], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[1]),
+        ];
+
+        let yz0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[0]),
+        ];
+        let yz1 = vec![
+            Vector4::new(xs[1], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[0]),
+        ];
+        let yz2 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[1], ws[1]),
+        ];
+        let yz3 = vec![
+            Vector4::new(xs[1], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[0], zs[1], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[0], ws[1]),
+            Vector4::new(xs[1], ys[1], zs[1], ws[1]),
+        ];
+
+        let yw0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[1], zs[0], ws[1]),
+        ];
+
+        let zw0 = vec![
+            Vector4::new(xs[0], ys[0], zs[0], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[0], ws[1]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[0]),
+            Vector4::new(xs[0], ys[0], zs[1], ws[1]),
+        ];
+
+        // self.points_4d = vec![xy0, xz0, xw0, yz0, yw0, zw0];
+        self.points_4d = vec![
+            xy0, xy1, xy2, xy3, xz0, xz1, xz2, xz3, yz0, yz1, yz2, yz3, xw0, xw1, xw2, xw3, yw0,
+            zw0,
+        ];
+    }
+
+    // get points and a normal
+    fn points_to_3d(points_4d: &Vec<Vector4<f64>>) -> (Vec<Vec3>, Vec<f32>) {
+        let mut points_3d_vec = Vec::new();
+        let mut points_3d = Vec::new();
+
+        for pt4 in points_4d {
+            let sc = 1.0 / (1.0 + pt4[3].abs());
+            let pt = Vector3::new(pt4[0] * sc, pt4[1] * sc, pt4[2] * sc);
+            points_3d.push(Vec3::new(pt[0] as f32, pt[1] as f32, pt[2] as f32));
+            points_3d_vec.push(pt);
+        }
+
+        let v0 = (points_3d_vec[1] - points_3d_vec[0]).normalize();
+        let v1 = (points_3d_vec[2] - points_3d_vec[0]).normalize();
+        // let normal = v0.cross(&v1);
+        let normal = v1.cross(&v0);
+
+        /*
+        let points_3d = [
+            points_3d[0],
+            points_3d[1],
+            points_3d[2],
+            points_3d[3],
+        ];
+        */
+
+        (
+            points_3d,
+            vec![normal[0] as f32, normal[1] as f32, normal[2] as f32],
+        )
+    }
+
+    fn get_meshes(&self) -> Vec<(Mesh, Color)> {
+        let mut meshes_colors = Vec::new();
+
+        for (ind, pts4d) in self.points_4d.iter().enumerate() {
+            let (points_3d, normal) = Beams4D::points_to_3d(pts4d);
+            let num_pts = pts4d.len();
+            let mesh = Mesh::new(PrimitiveTopology::TriangleList)
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points_3d)
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_NORMAL,
+                    vec![[normal[0], normal[1], normal[2]]; num_pts],
+                )
+                // .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
+                .with_indices(Some(Indices::U16(vec![0, 2, 1, 1, 2, 3])));
+
+            let indf = ind as f32;
+            let color = Color::rgb(indf * 0.1, 1.0 - indf * 0.05, indf * 0.01);
+            println!("{ind} {indf} {color:?}");
+            meshes_colors.push((mesh, color));
+        }
+        meshes_colors
+    }
+
+    /*
     fn update_mesh(
         &mut self,
         time: Res<Time>,
@@ -47,40 +251,17 @@ impl ModifyVerts {
         }
         self.i += 1;
     }
-
-    fn setup(&mut self) {
-        let mc = vec![
-            setup_rect(-1.0, 3.0, -1.0, 0.05, 1.0, 0.1),
-            setup_rect(-1.0, 3.0, 1.0, 0.05, 1.0, 0.1),
-            setup_rect(1.0, 3.0, -1.0, 0.05, 1.0, 0.1),
-            setup_rect(1.0, 3.0, 1.0, 0.05, 1.0, 0.1),
-            setup_rect(0.0, 2.0, -1.0, 1.0, 0.05, 0.12),
-            setup_rect(0.0, 2.0, 1.0, 1.0, 0.05, 0.12),
-            setup_rect(0.0, 4.0, -1.0, 1.0, 0.05, 0.12),
-            setup_rect(0.0, 4.0, 1.0, 1.0, 0.05, 0.12),
-            setup_rect(-1.0, 2.0, 0.0, 0.05, 0.05, 1.0),
-            setup_rect(1.0, 2.0, 0.0, 0.05, 0.05, 1.0),
-            setup_rect(-1.0, 4.0, 0.0, 0.05, 0.05, 1.0),
-            setup_rect(1.0, 4.0, 0.0, 0.05, 0.05, 1.0),
-        ];
-
-        let mut num_meshes = 0;
-        for mesh_colors in &mc {
-            num_meshes += mesh_colors.len();
-        }
-        println!("created {num_meshes} meshes for modify verts");
-        self.raw_meshes = mc;
-    }
+    */
 }
 
 fn main() {
-    let mut modify_verts = ModifyVerts {
+    let mut beams_4d = Beams4D {
         i: 0,
-        raw_meshes: Vec::new(),
+        points_4d: Vec::new(),
     };
-    modify_verts.setup();
+    beams_4d.build_points();
     // TODO(lucasw) double clone seems wrong, but it works
-    let raw_meshes = modify_verts.raw_meshes.clone();
+    let raw_meshes = beams_4d.get_meshes();
 
     App::new()
         .add_plugins(DefaultPlugins)
@@ -95,109 +276,21 @@ fn main() {
         .add_systems(
             Update,
             (
+                /*
                 move |tm: Res<Time>,
                       qr: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
                       at: ResMut<Assets<Mesh>>| {
-                    modify_verts.update_mesh(tm, qr, at)
+                    beams_4d.update_mesh(tm, qr, at)
                 },
+                */
                 bevy_test::camera_controller,
             ),
         )
         .run();
 }
 
-fn setup_rect(x0: f32, y0: f32, z0: f32, wd: f32, ht: f32, dp: f32) -> Vec<(Mesh, Color)> {
-    let mut mesh_colors = Vec::new();
-
-    {
-        // top
-        let pts = vec![
-            [x0 + -wd, y0 + ht, z0 - dp],
-            [x0 + -wd, y0 + ht, z0 + dp],
-            [x0 + wd, y0 + ht, z0 - dp],
-            [x0 + wd, y0 + ht, z0 + dp],
-        ];
-        let num_pts = pts.len();
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pts)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; num_pts])
-            .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-
-        mesh_colors.push((mesh, Color::rgb(0.5, 0.5, 0.0)));
-    }
-
-    {
-        // front
-        let pts = vec![
-            [x0 + -wd, y0 - ht, z0 + dp],
-            [x0 + wd, y0 - ht, z0 + dp],
-            [x0 + -wd, y0 + ht, z0 + dp],
-            [x0 + wd, y0 + ht, z0 + dp],
-        ];
-        let num_pts = pts.len();
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pts)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, 1.0]; num_pts])
-            .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-
-        mesh_colors.push((mesh, Color::rgb(0.2, 0.75, 0.0)));
-    }
-
-    {
-        // right
-        let pts = vec![
-            [x0 + wd, y0 - ht, z0 + dp],
-            [x0 + wd, y0 - ht, z0 - dp],
-            [x0 + wd, y0 + ht, z0 + dp],
-            [x0 + wd, y0 + ht, z0 - dp],
-        ];
-        let num_pts = pts.len();
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pts)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[1.0, 0.0, 0.0]; num_pts])
-            .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-
-        mesh_colors.push((mesh, Color::rgb(0.8, 0.15, 0.0)));
-    }
-
-    {
-        // back
-        let pts = vec![
-            [x0 + wd, y0 - ht, z0 - dp],
-            [x0 + -wd, y0 - ht, z0 - dp],
-            [x0 + wd, y0 + ht, z0 - dp],
-            [x0 + -wd, y0 + ht, z0 - dp],
-        ];
-        let num_pts = pts.len();
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pts)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 0.0, -1.0]; num_pts])
-            .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-
-        mesh_colors.push((mesh, Color::rgb(0.2, 0.75, 0.0)));
-    }
-
-    {
-        // left
-        let pts = vec![
-            [x0 + -wd, y0 - ht, z0 - dp],
-            [x0 + -wd, y0 - ht, z0 + dp],
-            [x0 + -wd, y0 + ht, z0 - dp],
-            [x0 + -wd, y0 + ht, z0 + dp],
-        ];
-        let num_pts = pts.len();
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, pts)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.8, 0.2, 0.0]; num_pts])
-            .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-
-        mesh_colors.push((mesh, Color::rgb(0.8, 0.25, 0.0)));
-    }
-    mesh_colors
-}
-
 fn setup(
-    raw_meshes: Vec<Vec<(Mesh, Color)>>,
+    meshes_colors: Vec<(Mesh, Color)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -224,24 +317,30 @@ fn setup(
         ..default()
     });
 
-    for mesh_colors in raw_meshes {
-        for (mesh, color) in mesh_colors {
-            let mesh = meshes.add(mesh);
+    for (mesh, color) in meshes_colors {
+        let mesh = meshes.add(mesh);
 
-            // TODO(lucasw) modify_vert needs to know about these mesh ids,
-            // but not sure how to get them across
-            println!("id {:?}", mesh.id());
-            let _ = commands
-                .spawn((
-                    AnimatedPosition,
-                    PbrBundle {
-                        mesh,
-                        material: materials.add(color.into()),
-                        ..default()
-                    },
-                ))
-                .id();
-        }
+        // TODO(lucasw) modify_vert needs to know about these mesh ids,
+        // but not sure how to get them across
+        println!("id {:?}", mesh.id());
+        let _ = commands
+            .spawn((
+                AnimatedPosition,
+                PbrBundle {
+                    mesh,
+                    material: materials.add(StandardMaterial {
+                        base_color: color,
+                        diffuse_transmission: 0.6,
+                        perceptual_roughness: 0.5,
+                        reflectance: 1.0,
+                        double_sided: true,
+                        cull_mode: None,
+                        ..Default::default()
+                    }),
+                    ..default()
+                },
+            ))
+            .id();
     }
 
     // ground plane
