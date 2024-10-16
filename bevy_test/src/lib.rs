@@ -1,6 +1,64 @@
 use bevy::{input::mouse::MouseMotion, prelude::*};
 use std::f32::consts::PI;
 
+#[rustfmt::skip]
+fn get_rotation_matrix_4d(
+    rot_xy: f64, rot_xz: f64, rot_yz: f64,
+    rot_xw: f64, rot_yw: f64, rot_zw: f64,
+) -> nalgebra::base::Matrix4<f64> {
+    // normal 3d rotations
+    let angle = rot_xy;
+    let mat_xy = nalgebra::base::Matrix4::new(
+        angle.cos(), angle.sin(), 0., 0.,
+        -angle.sin(), angle.cos(), 0., 0.,
+        0., 0., 1.0, 0.,
+        0., 0., 0., 1.0,
+    );
+
+    let angle = rot_xz;
+    let mat_xz = nalgebra::base::Matrix4::new(
+        angle.cos(), 0., angle.sin(), 0.,
+        0., 1., 0., 0.,
+        -angle.sin(), 0., angle.cos(), 0.,
+        0., 0., 0., 1.0,
+    );
+
+    let angle = rot_yz;
+    let mat_yz = nalgebra::base::Matrix4::new(
+        1., 0., 0., 0.,
+        0., angle.cos(), angle.sin(), 0.,
+        0., -angle.sin(), angle.cos(), 0.,
+        0., 0., 0., 1.0,
+    );
+
+    // 4th dimension rotations
+    let angle = rot_xw;
+    let mat_xw = nalgebra::base::Matrix4::new(
+        angle.cos(), 0., 0., angle.sin(),
+        0., 1.0, 0., 0.,
+        0., 0., 1.0, 0.,
+        -angle.sin(), 0., 0., angle.cos(),
+    );
+
+    let angle = rot_yw;
+    let mat_yw = nalgebra::base::Matrix4::new(
+        1.0, 0., 0., 0.,
+        0., angle.cos(),  0., angle.sin(),
+        0., 0., 1.0, 0.,
+        0., -angle.sin(), 0., angle.cos(),
+    );
+
+    let angle = rot_zw;
+    let mat_zw = nalgebra::base::Matrix4::new(
+        1.0, 0., 0., 0.,
+        0., 1.0, 0., 0.,
+        0., 0., angle.cos(), angle.sin(),
+        0., 0., -angle.sin(), angle.cos(),
+    );
+
+    mat_xy * mat_xz * mat_yz * mat_xw * mat_yw * mat_zw
+}
+
 #[derive(Component)]
 pub struct CameraController {
     pub enabled: bool,
@@ -20,12 +78,7 @@ pub struct CameraController {
     pub friction: f32,
     pub pitch: f32,
     pub yaw: f32,
-    pub rot_xy: f64,
-    pub rot_xz: f64,
-    pub rot_yz: f64,
-    pub rot_xw: f64,
-    pub rot_yw: f64,
-    pub rot_zw: f64,
+    pub rot_mat: nalgebra::base::Matrix4<f64>,
     pub velocity: Vec3,
 }
 
@@ -49,12 +102,7 @@ impl Default for CameraController {
             friction: 0.5,
             pitch: 0.0,
             yaw: 0.0,
-            rot_xy: 0.0,
-            rot_xz: 0.0,
-            rot_yz: 0.0,
-            rot_xw: 0.0,
-            rot_yw: 0.0,
-            rot_zw: 0.0,
+            rot_mat: nalgebra::base::Matrix4::<f64>::identity(),
             velocity: Vec3::ZERO,
         }
     }
@@ -107,47 +155,58 @@ pub fn camera_controller(
 
         // This is more than a camera controller, it controls the tesseract
         {
+            let mut rot_xy = 0.0;
+            let mut rot_xz = 0.0;
+            let mut rot_yz = 0.0;
+            let mut rot_xw = 0.0;
+            let mut rot_yw = 0.0;
+            let mut rot_zw = 0.0;
+
             if key_input.pressed(KeyCode::R) {
-                options.rot_xy += 0.01;
+                rot_xy += 0.01;
             }
             if key_input.pressed(KeyCode::F) {
-                options.rot_xy -= 0.009;
+                rot_xy -= 0.009;
             }
 
             if key_input.pressed(KeyCode::T) {
-                options.rot_xz += 0.01;
+                rot_xz += 0.01;
             }
             if key_input.pressed(KeyCode::G) {
-                options.rot_xz -= 0.009;
+                rot_xz -= 0.009;
             }
 
             if key_input.pressed(KeyCode::Y) {
-                options.rot_yz += 0.01;
+                rot_yz += 0.01;
             }
             if key_input.pressed(KeyCode::H) {
-                options.rot_yz -= 0.009;
+                rot_yz -= 0.009;
             }
 
             if key_input.pressed(KeyCode::U) {
-                options.rot_xw += 0.01;
+                rot_xw += 0.01;
             }
             if key_input.pressed(KeyCode::J) {
-                options.rot_xw -= 0.009;
+                rot_xw -= 0.009;
             }
 
             if key_input.pressed(KeyCode::I) {
-                options.rot_yw += 0.01;
+                rot_yw += 0.01;
             }
             if key_input.pressed(KeyCode::K) {
-                options.rot_yw -= 0.009;
+                rot_yw -= 0.009;
             }
 
             if key_input.pressed(KeyCode::O) {
-                options.rot_zw += 0.01;
+                rot_zw += 0.01;
             }
             if key_input.pressed(KeyCode::L) {
-                options.rot_zw -= 0.009;
+                rot_zw -= 0.009;
             }
+
+            let rot_mat = get_rotation_matrix_4d(rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
+            options.rot_mat = rot_mat * options.rot_mat;
+            options.rot_mat.normalize_mut();
         }
 
         // Apply movement update

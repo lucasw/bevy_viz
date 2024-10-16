@@ -10,64 +10,6 @@ use std::collections::HashSet;
 #[derive(Component)]
 struct AnimatedPosition;
 
-#[rustfmt::skip]
-fn get_rotation_matrix_4d(
-    rot_xy: f64, rot_xz: f64, rot_yz: f64,
-    rot_xw: f64, rot_yw: f64, rot_zw: f64,
-) -> nalgebra::base::Matrix4<f64> {
-    // normal 3d rotations
-    let angle = rot_xy;
-    let mat_xy = nalgebra::base::Matrix4::new(
-        angle.cos(), angle.sin(), 0., 0.,
-        -angle.sin(), angle.cos(), 0., 0.,
-        0., 0., 1.0, 0.,
-        0., 0., 0., 1.0,
-    );
-
-    let angle = rot_xz;
-    let mat_xz = nalgebra::base::Matrix4::new(
-        angle.cos(), 0., angle.sin(), 0.,
-        0., 1., 0., 0.,
-        -angle.sin(), 0., angle.cos(), 0.,
-        0., 0., 0., 1.0,
-    );
-
-    let angle = rot_yz;
-    let mat_yz = nalgebra::base::Matrix4::new(
-        1., 0., 0., 0.,
-        0., angle.cos(), angle.sin(), 0.,
-        0., -angle.sin(), angle.cos(), 0.,
-        0., 0., 0., 1.0,
-    );
-
-    // 4th dimension rotations
-    let angle = rot_xw;
-    let mat_xw = nalgebra::base::Matrix4::new(
-        angle.cos(), 0., 0., angle.sin(),
-        0., 1.0, 0., 0.,
-        0., 0., 1.0, 0.,
-        -angle.sin(), 0., 0., angle.cos(),
-    );
-
-    let angle = rot_yw;
-    let mat_yw = nalgebra::base::Matrix4::new(
-        1.0, 0., 0., 0.,
-        0., angle.cos(),  0., angle.sin(),
-        0., 0., 1.0, 0.,
-        0., -angle.sin(), 0., angle.cos(),
-    );
-
-    let angle = rot_zw;
-    let mat_zw = nalgebra::base::Matrix4::new(
-        1.0, 0., 0., 0.,
-        0., 1.0, 0., 0.,
-        0., 0., angle.cos(), angle.sin(),
-        0., 0., -angle.sin(), angle.cos(),
-    );
-
-    mat_xy * mat_xz * mat_yz * mat_xw * mat_yw * mat_zw
-}
-
 struct Beams4D {
     i: u64,
     // list of points that make up triangle lists
@@ -164,23 +106,18 @@ impl Beams4D {
     // get points and a normal
     fn points_to_3d(
         points_4d: &Vec<Vector4<f64>>,
-        rot_xy: f64,
-        rot_xz: f64,
-        rot_yz: f64,
-        rot_xw: f64,
-        rot_yw: f64,
-        rot_zw: f64,
+        rot_mat: &nalgebra::base::Matrix4<f64>,
     ) -> (Vec<Vec3>, Vec<f32>) {
         let mut points_3d_vec = Vec::new();
         let mut points_3d = Vec::new();
 
-        let mat_w = get_rotation_matrix_4d(rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
-
         let w0 = 4.0;
         for pt4 in points_4d {
-            let pt4 = mat_w * pt4;
-            let w_sc = 1.0 / (w0 + pt4[3]).max(0.5);
-            let pt = Vector3::new(pt4[0] * w_sc, pt4[1] * w_sc, pt4[2] * w_sc);
+            let pt4 = rot_mat * pt4;
+            let (x, y, z, w) = (pt4[0], pt4[1], pt4[2], pt4[3]);
+            let w_sc = 1.0 / (w0 + w).max(0.9);
+            // let w_sc = 0.25 * (w_sc * w_sc) + 0.75 * w_sc;
+            let pt = Vector3::new(x * w_sc, y * w_sc, z * w_sc);
             points_3d.push(Vec3::new(pt[0] as f32, pt[1] as f32, pt[2] as f32));
             points_3d_vec.push(pt);
         }
@@ -199,12 +136,7 @@ impl Beams4D {
     fn get_meshes(&self) -> Vec<(Mesh, Color)> {
         let mut meshes_colors = Vec::new();
 
-        let rot_xy = 0.0;
-        let rot_xz = 0.0;
-        let rot_yz = 0.0;
-        let rot_xw = 0.0;
-        let rot_yw = 0.0;
-        let rot_zw = 0.0;
+        let mat_xyzw = nalgebra::base::Matrix4::<f64>::identity();
 
         // TODO(lucasw) build much larger sets of triangles, probably that will
         // greatly improve performance
@@ -213,7 +145,7 @@ impl Beams4D {
         let mut all_indices = Vec::new();
         for (ind, pts4d) in self.points_4d.iter().enumerate() {
             let (points_3d, normal) =
-                Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
+                Beams4D::points_to_3d(pts4d, &mat_xyzw);
             let num_pts = points_3d.len();
             all_points.extend(points_3d);
             all_normals.extend(vec![[normal[0], normal[1], normal[2]]; num_pts]);
@@ -247,18 +179,11 @@ impl Beams4D {
         query1: Query<&bevy_test::CameraController, With<Camera>>,
         mut assets: ResMut<Assets<Mesh>>,
     ) {
-        let (rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw) = {
+        let rot_mat = {
             if let Ok(camera) = query1.get_single() {
-                (
-                    camera.rot_xy,
-                    camera.rot_xz,
-                    camera.rot_yz,
-                    camera.rot_xw,
-                    camera.rot_yw,
-                    camera.rot_zw,
-                )
+                camera.rot_mat
             } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                nalgebra::base::Matrix4::<f64>::identity()
             }
         };
 
@@ -279,8 +204,7 @@ impl Beams4D {
                 let mut all_points = Vec::new();
                 let mut all_normals = Vec::new();
                 for pts4d in &self.points_4d {
-                    let (points_3d, normal) =
-                        Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
+                    let (points_3d, normal) = Beams4D::points_to_3d(pts4d, &rot_mat);
                     let num_pts = points_3d.len();
                     all_points.extend(points_3d);
                     all_normals.extend(vec![[normal[0], normal[1], normal[2]]; num_pts]);
@@ -371,14 +295,16 @@ fn main() {
         points_4d: Vec::new(),
     };
 
-    // beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
+    beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
 
-    // multiple tesseracts go really slow
-    for xi in 0..1 {
-        for yi in -2..3 {
-            beams_4d.build_tesseract(xi as f64 * 2.2, yi as f64 * 2.2, 0.0, 0.0);
+    /*
+    // TODO(lucasw) can't have too many or exceed u16, and they stop showing up?
+    for xi in -1..2 {
+        for yi in -1..2 {
+            beams_4d.build_tesseract(xi as f64 * 3.0, yi as f64 * 3.0, 0.0, 0.0);
         }
     }
+    */
 
     let raw_meshes = beams_4d.get_meshes();
 
