@@ -164,6 +164,9 @@ impl Beams4D {
     // get points and a normal
     fn points_to_3d(
         points_4d: &Vec<Vector4<f64>>,
+        rot_xy: f64,
+        rot_xz: f64,
+        rot_yz: f64,
         rot_xw: f64,
         rot_yw: f64,
         rot_zw: f64,
@@ -171,13 +174,13 @@ impl Beams4D {
         let mut points_3d_vec = Vec::new();
         let mut points_3d = Vec::new();
 
-        let mat_w = get_rotation_matrix_4d(0.0, 0.0, 0.0, rot_xw, rot_yw, rot_zw);
+        let mat_w = get_rotation_matrix_4d(rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
 
+        let w0 = 4.0;
         for pt4 in points_4d {
             let pt4 = mat_w * pt4;
-
-            let sc = 3.0 / (3.0 + pt4[3].abs());
-            let pt = Vector3::new(pt4[0] * sc, pt4[1] * sc, pt4[2] * sc);
+            let w_sc = 1.0 / (w0 + pt4[3]).max(0.5);
+            let pt = Vector3::new(pt4[0] * w_sc, pt4[1] * w_sc, pt4[2] * w_sc);
             points_3d.push(Vec3::new(pt[0] as f32, pt[1] as f32, pt[2] as f32));
             points_3d_vec.push(pt);
         }
@@ -201,7 +204,8 @@ impl Beams4D {
         let rot_zw = 0.0;
 
         for (ind, pts4d) in self.points_4d.iter().enumerate() {
-            let (points_3d, normal) = Beams4D::points_to_3d(pts4d, rot_xw, rot_yw, rot_zw);
+            let (points_3d, normal) =
+                Beams4D::points_to_3d(pts4d, 0., 0., 0., rot_xw, rot_yw, rot_zw);
             let num_pts = pts4d.len();
             let mesh = Mesh::new(PrimitiveTopology::TriangleList)
                 .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points_3d)
@@ -228,31 +232,42 @@ impl Beams4D {
     fn update_mesh(
         &mut self,
         _time: Res<Time>,
-        query: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
+        query0: Query<&Handle<Mesh>, With<AnimatedPosition>>,
+        mut query1: Query<&mut bevy_test::CameraController, With<Camera>>,
         mut assets: ResMut<Assets<Mesh>>,
     ) {
+        let (rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw) = {
+            if let Ok(camera) = query1.get_single_mut() {
+                (
+                    camera.rot_xy,
+                    camera.rot_xz,
+                    camera.rot_yz,
+                    camera.rot_xw,
+                    camera.rot_yw,
+                    camera.rot_zw,
+                )
+            } else {
+                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            }
+        };
+
         // if self.i % 60 == 0 {
         //     println!("update {:.3}", time.elapsed_seconds());
         // }
 
-        let rot_xw = self.i as f64 * 0.005;
-        let rot_yw = self.i as f64 * 0.000703;
-        let rot_zw = self.i as f64 * 0.00031;
-        println!(
-            "xw: {:.2}, yw: {rot_yw:.2}, zw: {rot_zw:.2}",
-            rot_xw / (std::f64::consts::PI * 2.0)
-        );
-        /*
-        let rot_xw = 0.0;
-        let rot_yw = 0.0;
-        let rot_zw = 0.0;
-        */
+        // println!(
+        //     "xw: {:.2}, yw: {rot_yw:.2}, zw: {rot_zw:.2}",
+        //     rot_xw / (std::f64::consts::PI * 2.0)
+        // );
 
-        for (ind, (_transform, handle)) in query.iter().enumerate() {
+        // TODO(lucasw) this ind isn't necessarily correlated with a mesh, how to associate the
+        // two?
+        for (ind, handle) in query0.iter().enumerate() {
             let mesh = assets.get_mut(handle.id());
             // println!("{:?}", handle.id());
             let pts4d = &self.points_4d[ind];
-            let (points_3d, normal) = Beams4D::points_to_3d(pts4d, rot_xw, rot_yw, rot_zw);
+            let (points_3d, normal) =
+                Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
             let num_pts = points_3d.len();
             if let Some(mesh) = mesh {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, points_3d);
@@ -266,6 +281,76 @@ impl Beams4D {
         }
         self.i += 1;
     }
+
+    fn build_tesseract(&mut self, xoff: f64, yoff: f64, zoff: f64, woff: f64) {
+        let sz = 0.92;
+        let wd = 0.04;
+
+        // build beams of a tesseract
+        for yi in 0..2 {
+            for zi in 0..2 {
+                for wi in 0..2 {
+                    let x0 = xoff;
+                    let xsz = sz;
+                    let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                    let ysz = wd;
+                    let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                    let zsz = wd;
+                    let w0 = woff + wi as f64 * 2.0 - 1.0;
+                    let wsz = wd;
+                    self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                }
+            }
+        }
+
+        for xi in 0..2 {
+            for zi in 0..2 {
+                for wi in 0..2 {
+                    let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                    let xsz = wd;
+                    let y0 = yoff;
+                    let ysz = sz;
+                    let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                    let zsz = wd;
+                    let w0 = woff + wi as f64 * 2.0 - 1.0;
+                    let wsz = wd;
+                    self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                }
+            }
+        }
+
+        for xi in 0..2 {
+            for yi in 0..2 {
+                for wi in 0..2 {
+                    let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                    let xsz = wd;
+                    let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                    let ysz = wd;
+                    let z0 = zoff;
+                    let zsz = sz;
+                    let w0 = woff + wi as f64 * 2.0 - 1.0;
+                    let wsz = wd;
+                    self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                }
+            }
+        }
+
+        for xi in 0..2 {
+            for yi in 0..2 {
+                for zi in 0..2 {
+                    let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                    let xsz = wd;
+                    let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                    let ysz = wd;
+                    let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                    let zsz = wd;
+                    let w0 = woff;
+                    let wsz = sz;
+                    self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                }
+            }
+        }
+    }
 }
 
 fn main() {
@@ -274,79 +359,23 @@ fn main() {
         points_4d: Vec::new(),
     };
 
-    let woff = 1.5;
-    let sz = 0.92;
-    let wd = 0.04;
+    beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
 
-    // build beams of a tesseract
-    for yi in 0..2 {
-        for zi in 0..2 {
-            for wi in 0..2 {
-                let x0 = 0.0; // xi as f64 * 2.0 - 1.0;
-                let xsz = sz;
-                let y0 = yi as f64 * 2.0 - 1.0;
-                let ysz = wd;
-                let z0 = zi as f64 * 2.0 - 1.0;
-                let zsz = wd;
-                let w0 = woff + wi as f64 * 2.0 - 1.0;
-                let wsz = wd;
-                beams_4d.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
-            }
+    // multiple tesseracts go really slow
+    /*
+    for xi in -2..3 {
+        for yi in -2..3 {
+            beams_4d.build_tesseract(xi as f64 * 2.2, yi as f64 * 2.2, 0.0, 0.0);
         }
     }
+    */
 
-    for xi in 0..2 {
-        for zi in 0..2 {
-            for wi in 0..2 {
-                let x0 = xi as f64 * 2.0 - 1.0;
-                let xsz = wd;
-                let y0 = 0.0; // yi as f64 * 2.0 - 1.0;
-                let ysz = sz;
-                let z0 = zi as f64 * 2.0 - 1.0;
-                let zsz = wd;
-                let w0 = woff + wi as f64 * 2.0 - 1.0;
-                let wsz = wd;
-                beams_4d.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
-            }
-        }
-    }
-
-    for xi in 0..2 {
-        for yi in 0..2 {
-            for wi in 0..2 {
-                let x0 = xi as f64 * 2.0 - 1.0;
-                let xsz = wd;
-                let y0 = yi as f64 * 2.0 - 1.0;
-                let ysz = wd;
-                let z0 = 0.0;
-                let zsz = sz;
-                let w0 = woff + wi as f64 * 2.0 - 1.0;
-                let wsz = wd;
-                beams_4d.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
-            }
-        }
-    }
-
-    for xi in 0..2 {
-        for yi in 0..2 {
-            for zi in 0..2 {
-                let x0 = xi as f64 * 2.0 - 1.0;
-                let xsz = wd;
-                let y0 = yi as f64 * 2.0 - 1.0;
-                let ysz = wd;
-                let z0 = zi as f64 * 2.0 - 1.0;
-                let zsz = wd;
-                let w0 = woff;
-                let wsz = sz;
-                beams_4d.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
-            }
-        }
-    }
-
+    // beams_4d.build_tesseract(0.0, 3.0, 0.0, 0.0);
     let raw_meshes = beams_4d.get_meshes();
 
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(ClearColor(Color::rgb(0.02, 0.0, 0.0)))
         .add_systems(
             Startup,
             move |commands: Commands,
@@ -360,15 +389,19 @@ fn main() {
             Update,
             (
                 move |tm: Res<Time>,
-                      qr: Query<(&Transform, &Handle<Mesh>), With<AnimatedPosition>>,
+                      query0: Query<&Handle<Mesh>, With<AnimatedPosition>>,
+                      query1: Query<&mut bevy_test::CameraController, With<Camera>>,
                       at: ResMut<Assets<Mesh>>| {
-                    beams_4d.update_mesh(tm, qr, at)
+                    beams_4d.update_mesh(tm, query0, query1, at)
                 },
                 bevy_test::camera_controller,
             ),
         )
         .run();
 }
+
+#[derive(Component)]
+struct CameraMarker;
 
 fn setup(
     meshes_colors: Vec<(Mesh, Color)>,
@@ -384,6 +417,7 @@ fn setup(
             ..default()
         },
         bevy_test::CameraController::default(),
+        CameraMarker,
     ));
 
     // Some light to see something
@@ -398,6 +432,7 @@ fn setup(
         ..default()
     });
 
+    // TODO(lucasw) there are a lot of meshes, could they be added together?
     for (mesh, color) in meshes_colors {
         let mesh = meshes.add(mesh);
 
@@ -428,7 +463,7 @@ fn setup(
     commands.spawn(PbrBundle {
         mesh: meshes.add(shape::Plane::from_size(150.).into()),
         material: materials.add(Color::SILVER.into()),
-        transform: Transform::from_xyz(0.0, -2.0, 0.0),
+        transform: Transform::from_xyz(0.0, -4.0, 0.0),
         ..default()
     });
 }

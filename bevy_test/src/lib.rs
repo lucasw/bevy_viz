@@ -20,6 +20,12 @@ pub struct CameraController {
     pub friction: f32,
     pub pitch: f32,
     pub yaw: f32,
+    pub rot_xy: f64,
+    pub rot_xz: f64,
+    pub rot_yz: f64,
+    pub rot_xw: f64,
+    pub rot_yw: f64,
+    pub rot_zw: f64,
     pub velocity: Vec3,
 }
 
@@ -43,6 +49,12 @@ impl Default for CameraController {
             friction: 0.5,
             pitch: 0.0,
             yaw: 0.0,
+            rot_xy: 0.0,
+            rot_xz: 0.0,
+            rot_yz: 0.0,
+            rot_xw: 0.0,
+            rot_yw: 0.0,
+            rot_zw: 0.0,
             velocity: Vec3::ZERO,
         }
     }
@@ -91,6 +103,51 @@ pub fn camera_controller(
         }
         if key_input.just_pressed(options.keyboard_key_enable_mouse) {
             *move_toggled = !*move_toggled;
+        }
+
+        // This is more than a camera controller, it controls the tesseract
+        {
+            if key_input.pressed(KeyCode::R) {
+                options.rot_xy += 0.01;
+            }
+            if key_input.pressed(KeyCode::F) {
+                options.rot_xy -= 0.009;
+            }
+
+            if key_input.pressed(KeyCode::T) {
+                options.rot_xz += 0.01;
+            }
+            if key_input.pressed(KeyCode::G) {
+                options.rot_xz -= 0.009;
+            }
+
+            if key_input.pressed(KeyCode::Y) {
+                options.rot_yz += 0.01;
+            }
+            if key_input.pressed(KeyCode::H) {
+                options.rot_yz -= 0.009;
+            }
+
+            if key_input.pressed(KeyCode::U) {
+                options.rot_xw += 0.01;
+            }
+            if key_input.pressed(KeyCode::J) {
+                options.rot_xw -= 0.009;
+            }
+
+            if key_input.pressed(KeyCode::I) {
+                options.rot_yw += 0.01;
+            }
+            if key_input.pressed(KeyCode::K) {
+                options.rot_yw -= 0.009;
+            }
+
+            if key_input.pressed(KeyCode::O) {
+                options.rot_zw += 0.01;
+            }
+            if key_input.pressed(KeyCode::L) {
+                options.rot_zw -= 0.009;
+            }
         }
 
         // Apply movement update
