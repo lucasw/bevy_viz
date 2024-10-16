@@ -236,7 +236,8 @@ pub fn camera_controller(
             mouse_delta += mouse_event.delta;
         }
 
-        let is_mouse_move = mouse_button_input.pressed(options.mouse_key_enable_mouse) || *move_toggled;
+        let is_mouse_move =
+            mouse_button_input.pressed(options.mouse_key_enable_mouse) || *move_toggled;
         if is_mouse_move {
             // Apply look update
             options.pitch = (options.pitch - mouse_delta.y * 0.5 * options.sensitivity * dt)

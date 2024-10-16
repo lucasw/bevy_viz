@@ -144,8 +144,7 @@ impl Beams4D {
         let mut all_normals = Vec::new();
         let mut all_indices = Vec::new();
         for (ind, pts4d) in self.points_4d.iter().enumerate() {
-            let (points_3d, normal) =
-                Beams4D::points_to_3d(pts4d, &mat_xyzw);
+            let (points_3d, normal) = Beams4D::points_to_3d(pts4d, &mat_xyzw);
             let num_pts = points_3d.len();
             all_points.extend(points_3d);
             all_normals.extend(vec![[normal[0], normal[1], normal[2]]; num_pts]);
@@ -216,6 +215,69 @@ impl Beams4D {
         }
 
         self.i += 1;
+    }
+
+    fn build_plane(&mut self, xoff: f64, yoff: f64, zoff: f64, woff: f64) {
+        let sz = 0.92;
+        let wd = 0.04;
+
+        for xi in -3..4 {
+            for yi in 0..1 {
+                for zi in -3..4 {
+                    for wi in 0..1 {
+                        let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                        let xsz = wd;
+                        let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                        let ysz = wd;
+                        let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                        let zsz = sz;
+                        let w0 = woff + wi as f64 * 2.0 - 1.0;
+                        let wsz = wd;
+                        self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+
+                        let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                        let xsz = sz;
+                        let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                        let ysz = wd;
+                        let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                        let zsz = wd;
+                        let w0 = woff + wi as f64 * 2.0 - 1.0;
+                        let wsz = wd;
+                        self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                    }
+                }
+            }
+        }
+
+        let zoff = zoff - 7.0;
+        let yoff = yoff + 7.0;
+        for xi in -3..4 {
+            for yi in -3..4 {
+                for zi in 0..1 {
+                    for wi in 0..1 {
+                        let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                        let xsz = wd;
+                        let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                        let ysz = sz;
+                        let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                        let zsz = wd;
+                        let w0 = woff + wi as f64 * 2.0 - 1.0;
+                        let wsz = wd;
+                        self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+
+                        let x0 = xoff + xi as f64 * 2.0 - 1.0;
+                        let xsz = sz;
+                        let y0 = yoff + yi as f64 * 2.0 - 1.0;
+                        let ysz = wd;
+                        let z0 = zoff + zi as f64 * 2.0 - 1.0;
+                        let zsz = wd;
+                        let w0 = woff + wi as f64 * 2.0 - 1.0;
+                        let wsz = wd;
+                        self.build_points((x0, xsz), (y0, ysz), (z0, zsz), (w0, wsz));
+                    }
+                }
+            }
+        }
     }
 
     fn build_tesseract(&mut self, xoff: f64, yoff: f64, zoff: f64, woff: f64) {
@@ -296,6 +358,7 @@ fn main() {
     };
 
     beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
+    // beams_4d.build_plane(0.0, 0.0, 0.0, 0.0);
 
     /*
     // TODO(lucasw) can't have too many or exceed u16, and they stop showing up?
