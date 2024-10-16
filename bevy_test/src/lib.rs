@@ -173,13 +173,12 @@ pub fn camera_controller(
 
         // Handle mouse input
         let mut mouse_delta = Vec2::ZERO;
-        if mouse_button_input.pressed(options.mouse_key_enable_mouse) || *move_toggled {
-            for mouse_event in mouse_events.read() {
-                mouse_delta += mouse_event.delta;
-            }
+        for mouse_event in mouse_events.read() {
+            mouse_delta += mouse_event.delta;
         }
 
-        if mouse_delta != Vec2::ZERO {
+        let is_mouse_move = mouse_button_input.pressed(options.mouse_key_enable_mouse) || *move_toggled;
+        if is_mouse_move {
             // Apply look update
             options.pitch = (options.pitch - mouse_delta.y * 0.5 * options.sensitivity * dt)
                 .clamp(-PI / 2., PI / 2.);
