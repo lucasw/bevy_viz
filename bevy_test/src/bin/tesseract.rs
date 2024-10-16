@@ -199,33 +199,44 @@ impl Beams4D {
     fn get_meshes(&self) -> Vec<(Mesh, Color)> {
         let mut meshes_colors = Vec::new();
 
+        let rot_xy = 0.0;
+        let rot_xz = 0.0;
+        let rot_yz = 0.0;
         let rot_xw = 0.0;
         let rot_yw = 0.0;
         let rot_zw = 0.0;
 
+        // TODO(lucasw) build much larger sets of triangles, probably that will
+        // greatly improve performance
+        let mut all_points = Vec::new();
+        let mut all_normals = Vec::new();
+        let mut all_indices = Vec::new();
         for (ind, pts4d) in self.points_4d.iter().enumerate() {
             let (points_3d, normal) =
-                Beams4D::points_to_3d(pts4d, 0., 0., 0., rot_xw, rot_yw, rot_zw);
-            let num_pts = pts4d.len();
-            let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, points_3d)
-                .with_inserted_attribute(
-                    Mesh::ATTRIBUTE_NORMAL,
-                    vec![[normal[0], normal[1], normal[2]]; num_pts],
-                )
-                // .with_indices(Some(Indices::U16(vec![0, 1, 2, 1, 3, 2])));
-                .with_indices(Some(Indices::U16(vec![0, 2, 1, 1, 2, 3])));
-
-            let indf = (ind / 24) as f32;
-            let color = Color::rgb(
-                (indf * 0.16) % 1.0,
-                (1.0 - indf * 0.05) % 1.0,
-                (indf * 0.07) % 1.0,
-            );
-            // let color = Color::rgb(0.65, 0.6, 0.5);
-            // println!("{ind} {indf} {color:?}");
-            meshes_colors.push((mesh, color));
+                Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
+            let num_pts = points_3d.len();
+            all_points.extend(points_3d);
+            all_normals.extend(vec![[normal[0], normal[1], normal[2]]; num_pts]);
+            let i = (ind * 4) as u16;
+            all_indices.extend(vec![i, i + 2, i + 1, i + 1, i + 2, i + 3]);
         }
+
+        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, all_points)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals)
+            .with_indices(Some(Indices::U16(all_indices)));
+
+        /*
+        // println!("{ind} {indf} {color:?}");
+        let indf = (ind / 24) as f32;
+        let color = Color::rgb(
+            (indf * 0.16) % 1.0,
+            (1.0 - indf * 0.05) % 1.0,
+            (indf * 0.07) % 1.0,
+        );
+        */
+        let color = Color::rgb(0.65, 0.6, 0.5);
+        meshes_colors.push((mesh, color));
         meshes_colors
     }
 
@@ -233,11 +244,11 @@ impl Beams4D {
         &mut self,
         _time: Res<Time>,
         query0: Query<&Handle<Mesh>, With<AnimatedPosition>>,
-        mut query1: Query<&mut bevy_test::CameraController, With<Camera>>,
+        query1: Query<&bevy_test::CameraController, With<Camera>>,
         mut assets: ResMut<Assets<Mesh>>,
     ) {
         let (rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw) = {
-            if let Ok(camera) = query1.get_single_mut() {
+            if let Ok(camera) = query1.get_single() {
                 (
                     camera.rot_xy,
                     camera.rot_xz,
@@ -260,25 +271,26 @@ impl Beams4D {
         //     rot_xw / (std::f64::consts::PI * 2.0)
         // );
 
-        // TODO(lucasw) this ind isn't necessarily correlated with a mesh, how to associate the
-        // two?
-        for (ind, handle) in query0.iter().enumerate() {
+        // TODO(lucasw) the correlation is loose here, and brittle- I know I've only
+        // created one mesh with AnimatedPosition that corresponds to all my points4d
+        if let Ok(handle) = query0.get_single() {
             let mesh = assets.get_mut(handle.id());
-            // println!("{:?}", handle.id());
-            let pts4d = &self.points_4d[ind];
-            let (points_3d, normal) =
-                Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
-            let num_pts = points_3d.len();
             if let Some(mesh) = mesh {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, points_3d);
-                mesh.insert_attribute(
-                    Mesh::ATTRIBUTE_NORMAL,
-                    vec![[normal[0], normal[1], normal[2]]; num_pts],
-                );
+                let mut all_points = Vec::new();
+                let mut all_normals = Vec::new();
+                for pts4d in &self.points_4d {
+                    let (points_3d, normal) =
+                        Beams4D::points_to_3d(pts4d, rot_xy, rot_xz, rot_yz, rot_xw, rot_yw, rot_zw);
+                    let num_pts = points_3d.len();
+                    all_points.extend(points_3d);
+                    all_normals.extend(vec![[normal[0], normal[1], normal[2]]; num_pts]);
+                }
+
+                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, all_points);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals);
             }
-            // transform.translation.x = time.elapsed_seconds().sin();
-            // transform.rotation = Quat::from_rotation_z(FRAC_PI_2 * time.elapsed_seconds().sin());
         }
+
         self.i += 1;
     }
 
@@ -359,18 +371,15 @@ fn main() {
         points_4d: Vec::new(),
     };
 
-    beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
+    // beams_4d.build_tesseract(0.0, 0.0, 0.0, 0.0);
 
     // multiple tesseracts go really slow
-    /*
-    for xi in -2..3 {
+    for xi in 0..1 {
         for yi in -2..3 {
             beams_4d.build_tesseract(xi as f64 * 2.2, yi as f64 * 2.2, 0.0, 0.0);
         }
     }
-    */
 
-    // beams_4d.build_tesseract(0.0, 3.0, 0.0, 0.0);
     let raw_meshes = beams_4d.get_meshes();
 
     App::new()
@@ -390,7 +399,7 @@ fn main() {
             (
                 move |tm: Res<Time>,
                       query0: Query<&Handle<Mesh>, With<AnimatedPosition>>,
-                      query1: Query<&mut bevy_test::CameraController, With<Camera>>,
+                      query1: Query<&bevy_test::CameraController, With<Camera>>,
                       at: ResMut<Assets<Mesh>>| {
                     beams_4d.update_mesh(tm, query0, query1, at)
                 },
