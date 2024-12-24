@@ -55,7 +55,23 @@ pub fn setup_physics(mut commands: Commands) {
                         RigidBody::Dynamic,
                         Collider::cuboid(4.0, 0.5, 2.0),
                         ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
-                ));
-            });
+                ))
+                .insert(ExternalForce {
+                    force: Vec3::new(100.0, 0.0, 0.0),
+                    torque: Vec3::new(1.0, 2.0, 30.0),
+                });
+            })
+            // TODO(lucasw) these have no effect, needs to be on the children?
+            /*
+            .insert(ExternalForce {
+                force: Vec3::new(-1000.0, 20.0, 30.0),
+                torque: Vec3::new(1.0, 2.0, 3.0),
+            })
+            .insert(ExternalImpulse {
+                impulse: Vec3::new(0.0, 0.0, 0.0),
+                torque_impulse: Vec3::new(0.0, 0.0, 0.0),
+            })
+            */
+        ;
     }
 }
