@@ -152,10 +152,14 @@ impl Beams4D {
             all_indices.extend(vec![i, i + 2, i + 1, i + 1, i + 2, i + 3]);
         }
 
-        let mesh = Mesh::new(PrimitiveTopology::TriangleList)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, all_points)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals)
-            .with_indices(Some(Indices::U16(all_indices)));
+        use bevy::render::render_asset::RenderAssetUsages;
+        let mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::MAIN_WORLD | RenderAssetUsages::RENDER_WORLD,
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, all_points)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, all_normals)
+        .with_inserted_indices(Indices::U16(all_indices));
 
         /*
         // println!("{ind} {indf} {color:?}");
@@ -166,7 +170,7 @@ impl Beams4D {
             (indf * 0.07) % 1.0,
         );
         */
-        let color = Color::rgb(0.65, 0.6, 0.5);
+        let color = Color::srgb(0.65, 0.6, 0.5);
         meshes_colors.push((mesh, color));
         meshes_colors
     }
@@ -373,7 +377,7 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(ClearColor(Color::rgb(0.02, 0.0, 0.0)))
+        .insert_resource(ClearColor(Color::srgb(0.02, 0.0, 0.0)))
         .add_systems(
             Startup,
             move |commands: Commands,
@@ -418,11 +422,13 @@ fn setup(
         CameraMarker,
     ));
 
+    // TODO(lucasw) the point light isn't working, the ground is shaded flat, and no shadows
     // Some light to see something
     commands.spawn(PointLightBundle {
         point_light: PointLight {
-            intensity: 7000.,
-            range: 50.,
+            intensity: 5_000_000.,
+            range: 30.,
+            color: Color::WHITE,
             shadows_enabled: true,
             ..default()
         },
@@ -459,8 +465,8 @@ fn setup(
 
     // ground plane
     commands.spawn(PbrBundle {
-        mesh: meshes.add(shape::Plane::from_size(150.).into()),
-        material: materials.add(Color::SILVER.into()),
+        mesh: meshes.add(Plane3d::default().mesh().size(150., 150.)),
+        material: materials.add(Color::WHITE),
         transform: Transform::from_xyz(0.0, -4.0, 0.0),
         ..default()
     });
