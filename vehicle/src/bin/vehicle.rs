@@ -15,6 +15,7 @@ fn main() {
             RapierDebugRenderPlugin::default(),
         ))
         .add_systems(Startup, (setup_graphics, setup_physics))
+        .add_systems(Update, cast_ray)
         .run();
 }
 
@@ -71,39 +72,30 @@ pub fn setup_physics(
         let y = 20.0;
         let z = 0.0;
 
+        let xs = 4.0;
+        let ys = 0.5;
+        let zs = 2.0;
+
         commands
-            .spawn(TransformBundle::from(Transform::from_rotation(
-                        Quat::from_rotation_x(0.4) * Quat::from_rotation_z(0.2),
-            )))
-            .with_children(|child| {
-                child.spawn((
-                        // TransformBundle::from(Transform::from_xyz(x, y, z)),
-                        RigidBody::Dynamic,
-                        Collider::cuboid(4.0, 0.5, 2.0),
-                        ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
-                        PbrBundle {
-                            mesh: meshes.add(Cuboid::new(4.0 * 2.0, 0.5 * 2.0, 2.0 * 2.0)),
-                            material: materials.add(Color::WHITE),
-                            transform: Transform::from_xyz(x, y, z),
-                            ..default()
-                        },
-                ))
-                .insert(ExternalForce {
-                    force: Vec3::new(100.0, 0.0, 0.0),
-                    torque: Vec3::new(1.0, 2.0, 30.0),
-                });
-            })
-            // TODO(lucasw) these have no effect, needs to be on the children?
-            /*
+            .spawn((
+                // TransformBundle::from(Transform::from_rotation(
+                //     Quat::from_rotation_x(0.4) * Quat::from_rotation_z(0.2),
+                // )),
+                RigidBody::Dynamic,
+                Collider::cuboid(xs, ys, zs),
+                ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
+                PbrBundle {
+                    mesh: meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0)),
+                    material: materials.add(Color::WHITE),
+                    transform: Transform::from_xyz(x, y, z),
+                    ..default()
+                },
+            ))
             .insert(ExternalForce {
-                force: Vec3::new(-1000.0, 20.0, 30.0),
-                torque: Vec3::new(1.0, 2.0, 3.0),
-            })
-            .insert(ExternalImpulse {
-                impulse: Vec3::new(0.0, 0.0, 0.0),
-                torque_impulse: Vec3::new(0.0, 0.0, 0.0),
-            })
-            */
-        ;
+                force: Vec3::new(100.0, 0.0, 0.0),
+                torque: Vec3::new(5.0, 10.0, 50.0),
+            });
     }
 }
+
+pub fn cast_ray(mut commands: Commands, rapier_context: Res<RapierContext>) {}
