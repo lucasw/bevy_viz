@@ -96,9 +96,10 @@ pub fn setup_physics(
                 },
                 Car,
             ))
+            // TODO(lucasw) this force is constant, applied all the time, can't be modified?
             .insert(ExternalForce {
-                force: Vec3::new(100.0, 0.0, 0.0),
-                torque: Vec3::new(5.0, 10.0, 50.0),
+                force: Vec3::new(0.0, 0.0, 0.0),
+                torque: Vec3::new(0.0, 0.0, 0.0),
             });
     }
 }
@@ -106,10 +107,10 @@ pub fn setup_physics(
 pub fn cast_ray(
     mut commands: Commands,
     rapier_context: Res<RapierContext>,
-    query: Query<(Entity, &GlobalTransform), With<Car>>,
+    query: Query<(Entity, &mut ExternalForce, &GlobalTransform), With<Car>>,
 ) {
     let max_length = 1.0;
-    for (car, car_transform) in &query {
+    for (car, ref mut external_force, car_transform) in &query {
         let wheel_pos = car_transform.translation() + (car_transform.down() * 0.6);
         let hit = rapier_context.cast_ray_and_get_normal(
             // TODO(lucasw) get location from car outside the chassis collision volume
@@ -123,16 +124,24 @@ pub fn cast_ray(
         );
         // println!("translation: {:?}, down: {:?} -> {hit:?}", car_transform.translation(), car_transform.down());
 
-        if let Some((entity, intersection)) = hit {
+        if let Some((hit_entity, intersection)) = hit {
             // let dist = (intersection.point - wheel_pos).length();
-            println!("{intersection:?}, {car}");
+            println!("{intersection:?}, {car} {external_force:?}");
             let compression = max_length - intersection.time_of_impact;
-            // car.add_force(intersection.normal);
+            let force = intersection.normal * compression * 1000.0;
+            // external_force.force = force;
+            // TODO(lucasw) external force is unchanged by this
+            *external_force = &ExternalForce {
+                force: force,
+                torque: Vec3::new(0.0, 0.0, 0.0),
+            };
+
+            // *rigid_body.add_force(force, true);
             // Color in blue the entity we just hit.
             // Because of the query filter, only colliders attached to a dynamic body
             // will get an event.
             let color = bevy::color::palettes::basic::BLUE.into();
-            commands.entity(entity).insert(ColliderDebugColor(color));
+            commands.entity(hit_entity).insert(ColliderDebugColor(color));
         }
     }
 }
