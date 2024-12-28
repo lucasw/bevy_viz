@@ -2,6 +2,9 @@ use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 // use rapier3d::prelude::*;
 
+#[derive(Component)]
+pub struct Car;
+
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::srgb(
@@ -90,6 +93,7 @@ pub fn setup_physics(
                     transform: Transform::from_xyz(x, y, z),
                     ..default()
                 },
+                Car,
             ))
             .insert(ExternalForce {
                 force: Vec3::new(100.0, 0.0, 0.0),
@@ -98,4 +102,30 @@ pub fn setup_physics(
     }
 }
 
-pub fn cast_ray(mut commands: Commands, rapier_context: Res<RapierContext>) {}
+pub fn cast_ray(
+    mut commands: Commands,
+    rapier_context: Res<RapierContext>,
+    query: Query<&GlobalTransform, With<Car>>,
+) {
+    for car_transform in &query {
+        let hit = rapier_context.cast_ray(
+            car_transform.translation(),
+            *car_transform.down(),
+            f32::MAX,
+            true,
+            QueryFilter::only_dynamic(),
+        );
+        println!("{:?}", car_transform);
+        // println!("{:?}", car_transform.matrix3().translation);
+        // println!("{:?} {:?} -> {hit:?}", car_transform.translation(), car_transform.down());
+
+        if let Some((entity, toi)) = hit {
+            println!("{toi:?}");
+            // Color in blue the entity we just hit.
+            // Because of the query filter, only colliders attached to a dynamic body
+            // will get an event.
+            let color = bevy::color::palettes::basic::BLUE.into();
+            commands.entity(entity).insert(ColliderDebugColor(color));
+        }
+    }
+}
