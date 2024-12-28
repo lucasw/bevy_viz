@@ -75,6 +75,7 @@ pub fn setup_physics(
         let y = 20.0;
         let z = 0.0;
 
+        // half sizes
         let xs = 4.0;
         let ys = 0.5;
         let zs = 2.0;
@@ -105,22 +106,28 @@ pub fn setup_physics(
 pub fn cast_ray(
     mut commands: Commands,
     rapier_context: Res<RapierContext>,
-    query: Query<&GlobalTransform, With<Car>>,
+    query: Query<(Entity, &GlobalTransform), With<Car>>,
 ) {
-    for car_transform in &query {
-        let hit = rapier_context.cast_ray(
-            car_transform.translation(),
+    let max_length = 1.0;
+    for (car, car_transform) in &query {
+        let wheel_pos = car_transform.translation() + (car_transform.down() * 0.6);
+        let hit = rapier_context.cast_ray_and_get_normal(
+            // TODO(lucasw) get location from car outside the chassis collision volume
+            wheel_pos,
             *car_transform.down(),
-            f32::MAX,
-            true,
-            QueryFilter::only_dynamic(),
+            max_length,  // f32::MAX,
+            false,
+            QueryFilter::default(),
+            // TODO(lucasw) how to make a queryfilter to exclude the car?
+            //QueryFilter::new(<Without<Car>>),
         );
-        println!("{:?}", car_transform);
-        // println!("{:?}", car_transform.matrix3().translation);
-        // println!("{:?} {:?} -> {hit:?}", car_transform.translation(), car_transform.down());
+        // println!("translation: {:?}, down: {:?} -> {hit:?}", car_transform.translation(), car_transform.down());
 
-        if let Some((entity, toi)) = hit {
-            println!("{toi:?}");
+        if let Some((entity, intersection)) = hit {
+            // let dist = (intersection.point - wheel_pos).length();
+            println!("{intersection:?}, {car}");
+            let compression = max_length - intersection.time_of_impact;
+            // car.add_force(intersection.normal);
             // Color in blue the entity we just hit.
             // Because of the query filter, only colliders attached to a dynamic body
             // will get an event.
