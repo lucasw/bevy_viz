@@ -107,10 +107,10 @@ pub fn setup_physics(
 pub fn cast_ray(
     mut commands: Commands,
     rapier_context: Res<RapierContext>,
-    query: Query<(Entity, &mut ExternalForce, &GlobalTransform), With<Car>>,
+    mut query: Query<(Entity, &mut ExternalForce, &GlobalTransform), With<Car>>,
 ) {
     let max_length = 1.0;
-    for (car, ref mut external_force, car_transform) in &query {
+    for (car, mut external_force, car_transform) in query.iter_mut() {
         let wheel_pos = car_transform.translation() + (car_transform.down() * 0.6);
         let hit = rapier_context.cast_ray_and_get_normal(
             // TODO(lucasw) get location from car outside the chassis collision volume
@@ -126,15 +126,13 @@ pub fn cast_ray(
 
         if let Some((hit_entity, intersection)) = hit {
             // let dist = (intersection.point - wheel_pos).length();
-            println!("{intersection:?}, {car} {external_force:?}");
+            // println!("{intersection:?}, {car} {external_force:?}");
             let compression = max_length - intersection.time_of_impact;
             let force = intersection.normal * compression * 1000.0;
-            // external_force.force = force;
             // TODO(lucasw) external force is unchanged by this
-            *external_force = &ExternalForce {
-                force: force,
-                torque: Vec3::new(0.0, 0.0, 0.0),
-            };
+            external_force.force = force;
+
+            // println!("{external_force:?}");
 
             // *rigid_body.add_force(force, true);
             // Color in blue the entity we just hit.
