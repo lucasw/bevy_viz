@@ -109,37 +109,52 @@ pub fn cast_ray(
     rapier_context: Res<RapierContext>,
     mut query: Query<(Entity, &mut ExternalForce, &GlobalTransform), With<Car>>,
 ) {
-    let max_length = 1.0;
-    for (car, mut external_force, car_transform) in query.iter_mut() {
-        let wheel_pos = car_transform.translation() + (car_transform.down() * 0.6);
-        let hit = rapier_context.cast_ray_and_get_normal(
-            // TODO(lucasw) get location from car outside the chassis collision volume
-            wheel_pos,
-            *car_transform.down(),
-            max_length,  // f32::MAX,
-            false,
-            QueryFilter::default(),
-            // TODO(lucasw) how to make a queryfilter to exclude the car?
-            //QueryFilter::new(<Without<Car>>),
-        );
-        // println!("translation: {:?}, down: {:?} -> {hit:?}", car_transform.translation(), car_transform.down());
+    let max_length = 0.4;
+    let mut force_torque = ExternalForce {
+        force: Vec3::new(0.0, 0.0, 0.0),
+        torque: Vec3::new(0.0, 0.0, 0.0),
+    };
+    for (car, mut external_force, car_tf) in query.iter_mut() {
+        // four wheels
+        // TODO(lucasw) need to use Car size as set above in xs, ys, & zs
+        let wheel_positions = vec![
+            car_tf.translation() + car_tf.forward() * 0.8 + car_tf.down() * 0.6 + car_tf.left() * 1.0,
+            car_tf.translation() + car_tf.forward() * 0.8 + car_tf.down() * 0.6 + car_tf.right() * 1.0,
+            car_tf.translation() + car_tf.back() * 0.8 + car_tf.down() * 0.6 + car_tf.left() * 1.0,
+            car_tf.translation() + car_tf.back() * 0.8 + car_tf.down() * 0.6 + car_tf.right() * 1.0,
+        ];
+        for wheel_pos in wheel_positions {
+            let hit = rapier_context.cast_ray_and_get_normal(
+                // TODO(lucasw) get location from car outside the chassis collision volume
+                wheel_pos,
+                *car_tf.down(),
+                max_length,  // f32::MAX,
+                false,
+                QueryFilter::default(),
+                // TODO(lucasw) how to make a queryfilter to exclude the car?
+                //QueryFilter::new(<Without<Car>>),
+            );
+            // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
-        if let Some((hit_entity, intersection)) = hit {
-            // let dist = (intersection.point - wheel_pos).length();
-            // println!("{intersection:?}, {car} {external_force:?}");
-            let compression = max_length - intersection.time_of_impact;
-            let force = intersection.normal * compression * 1000.0;
-            // TODO(lucasw) external force is unchanged by this
-            external_force.force = force;
+            if let Some((hit_entity, intersection)) = hit {
+                // let dist = (intersection.point - wheel_pos).length();
+                // println!("{intersection:?}, {car} {external_force:?}");
+                let compression = max_length - intersection.time_of_impact;
+                let force = intersection.normal * compression * 700.0;
+                // TODO(lucasw) external force is unchanged by this
+                force_torque += ExternalForce::at_point(force, wheel_pos, car_tf.translation());
 
-            // println!("{external_force:?}");
+                // println!("{external_force:?}");
 
-            // *rigid_body.add_force(force, true);
-            // Color in blue the entity we just hit.
-            // Because of the query filter, only colliders attached to a dynamic body
-            // will get an event.
-            let color = bevy::color::palettes::basic::BLUE.into();
-            commands.entity(hit_entity).insert(ColliderDebugColor(color));
+                // *rigid_body.add_force(force, true);
+                // Color in blue the entity we just hit.
+                // Because of the query filter, only colliders attached to a dynamic body
+                // will get an event.
+                let color = bevy::color::palettes::basic::BLUE.into();
+                commands.entity(hit_entity).insert(ColliderDebugColor(color));
+            }
         }
+        external_force.force = force_torque.force;
+        external_force.torque = force_torque.torque;
     }
 }
