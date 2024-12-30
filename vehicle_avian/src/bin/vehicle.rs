@@ -3,7 +3,9 @@ use bevy::color::palettes::css::SILVER;
 use bevy::prelude::*;
 
 #[derive(Component)]
-pub struct Car;
+pub struct Car {
+    compression: [f32; 4],
+}
 
 fn main() {
     App::new()
@@ -68,29 +70,33 @@ pub fn setup_physics(
         let ys = 0.5;
         let zs = 2.0;
 
-        let car = commands.spawn((
+        let car = Car {
+            compression: [0.0, 0.0, 0.0, 0.0],
+        };
+        let car_command = commands.spawn((
             RigidBody::Dynamic,
             Collider::cuboid(xs, ys, zs),
             // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
             Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
             MeshMaterial3d(materials.add(Color::from(SILVER))),
             Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_x(0.2)),
-            Car,
-            ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
+            car,
+            // ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
+            ExternalImpulse::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
         ));
-        println!("spawned car id: {}", car.id());
+        println!("spawned car id: {}", car_command.id());
     }
 }
 
 pub fn cast_ray(
     // mut commands: Commands,
     spatial_query: SpatialQuery,
-    mut query: Query<(Entity, &mut ExternalForce, &GlobalTransform), With<Car>>,
+    mut query: Query<(&mut Car, Entity, &mut ExternalImpulse, &GlobalTransform)>,
 ) {
     let max_length = 0.4;
-    let wheel_y = 0.24;
-    for (car, mut external_force, car_tf) in query.iter_mut() {
-        // println!("{:?} {external_force:?}", car_tf.translation());
+    let wheel_y = 0.15;
+    for (mut car, car_entity, mut external_impulse, car_tf) in query.iter_mut() {
+        // println!("{:?} {external_impulse:?}", car_tf.translation());
         // four wheels
         // TODO(lucasw) need to use Car size as set above in xs, ys, & zs
         let wheel_positions = vec![
@@ -112,15 +118,15 @@ pub fn cast_ray(
                 + car_tf.right() * 1.0,
         ];
         // println!("{:?}", car);
-        for wheel_pos in wheel_positions {
+        for (ind, wheel_pos) in wheel_positions.into_iter().enumerate() {
             let down = *car_tf.down();
             let hit = spatial_query.cast_ray(
                 // TODO(lucasw) get location from car outside the chassis collision volume
                 wheel_pos,
                 Dir3::new(down).unwrap(),
                 max_length, // f32::MAX,
-                true,
-                &SpatialQueryFilter::default().with_excluded_entities([car]),
+                false,
+                &SpatialQueryFilter::default().with_excluded_entities([car_entity]),
                 // TODO(lucasw) how to make a queryfilter to exclude the object the ray originates
                 // from, the car?  But it ought to hit other cars if anyy as well.
                 // SpatialQueryFilter::new(<Without<Car>>),
@@ -128,23 +134,33 @@ pub fn cast_ray(
             // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
             if let Some(hit) = hit {
-                // println!("{intersection:?}, {car} {external_force:?}");
+                // println!("{intersection:?}, {car} {external_impulse:?}");
                 // if hit.distance > 0.0
                 let compression = max_length - hit.distance;
-                let force = hit.normal * compression * 70.0;
-                // external_force.apply_force(force);
-                // println!("wheel: {wheel_pos:?}, {hit:?} {force:?}");
-                // TODO(lucasw) external force is unchanged by this
-                external_force.apply_force_at_point(force, wheel_pos, car_tf.translation());
+                let compression_delta = compression - car.compression[ind];
+                car.compression[ind] = compression;
+                let impulse_magnitude = compression * 3.0; // + compression_delta * 3.0;
+                if ind == 0 {
+                    println!("wheel: {ind}, {compression:.3} {compression_delta:.3} impulse {impulse_magnitude:.3}");
+                }
+                // let impulse = hit.normal * impulse_magnitude;
+                let impulse = car_tf.up() * impulse_magnitude;
+                // external_impulse.apply_impulse(impulse);
+                // TODO(lucasw) external impulse is unchanged by this
+                external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
 
-                // *rigid_body.add_force(force, true);
                 // Color in blue the entity we just hit.
                 // Because of the query filter, only colliders attached to a dynamic body
                 // will get an event.
                 // let color = bevy::color::palettes::basic::BLUE.into();
                 // commands.entity(hit_entity).insert(ColliderDebugColor(color));
+
+                // TODO(lucasw) apply forces/impulses to wheel if it is moving sideways with
+                // respect to the object it hit (for now assume hit object is static)
+            } else {
+                car.compression[ind] = 0.0;
             }
         }
-        println!("external force: {external_force:?}");
+        // println!("compression: {:?}, external impulse: {external_impulse:?}", car.compression);
     }
 }
