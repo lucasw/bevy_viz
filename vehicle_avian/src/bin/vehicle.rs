@@ -4,8 +4,14 @@ use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct Car {
+    throttle: f32,
+    brake: f32,
+    steering_angle: f32,
     compression: [f32; 4],
 }
+
+#[derive(Component)]
+pub struct CarCamera {}
 
 fn main() {
     App::new()
@@ -16,7 +22,7 @@ fn main() {
         )))
         .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
         .add_systems(Startup, (setup_graphics, setup_physics))
-        .add_systems(Update, cast_ray)
+        .add_systems(Update, (cast_ray, move_camera, control_car, update_car))
         .run();
 }
 
@@ -24,6 +30,7 @@ pub fn setup_graphics(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(-5.0, 7.0, 12.0).looking_at(Vec3::new(0.0, 2.5, 0.0), Vec3::Y),
+        CarCamera {},
     ));
 }
 
@@ -66,11 +73,14 @@ pub fn setup_physics(
         let z = 0.0;
 
         // half sizes
-        let xs = 4.0;
-        let ys = 0.5;
-        let zs = 2.0;
+        let xs = 2.0; // left/right
+        let ys = 0.5; // up/down
+        let zs = 4.0; // forward/back
 
         let car = Car {
+            throttle: 0.0,
+            brake: 0.0,
+            steering_angle: 0.0,
             compression: [0.0, 0.0, 0.0, 0.0],
         };
         let car_command = commands.spawn((
@@ -81,10 +91,66 @@ pub fn setup_physics(
             MeshMaterial3d(materials.add(Color::from(SILVER))),
             Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_x(0.2)),
             car,
-            // ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
+            ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
             ExternalImpulse::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
         ));
         println!("spawned car id: {}", car_command.id());
+    }
+}
+
+// camera control
+pub fn move_camera(
+    key_input: Res<ButtonInput<KeyCode>>,
+    mut query: Query<&mut Transform, With<CarCamera>>,
+) {
+    if let Ok(mut transform) = query.get_single_mut() {
+        let tr_copy = transform.clone();
+        if key_input.pressed(KeyCode::KeyW) {
+            transform.translation += tr_copy.forward() * 0.3;
+        } else if key_input.pressed(KeyCode::KeyS) {
+            transform.translation += tr_copy.back() * 0.27;
+        } else if key_input.pressed(KeyCode::KeyA) {
+            transform.translation += tr_copy.left() * 0.3;
+        } else if key_input.pressed(KeyCode::KeyD) {
+            transform.translation += tr_copy.right() * 0.3;
+        }
+    }
+}
+
+pub fn control_car(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut Car>) {
+    if let Ok(mut car) = query.get_single_mut() {
+        if key_input.pressed(KeyCode::ArrowUp) {
+            car.throttle += 0.1;
+        }
+        if key_input.pressed(KeyCode::ArrowDown) {
+            car.brake += 0.1;
+        }
+        if key_input.pressed(KeyCode::ArrowLeft) {
+            car.steering_angle += 0.05;
+        }
+        if key_input.pressed(KeyCode::ArrowRight) {
+            car.steering_angle -= 0.05;
+        }
+    }
+}
+
+pub fn update_car(mut query: Query<(&mut Car, &mut ExternalForce, &GlobalTransform)>) {
+    if let Ok((mut car, mut external_force, car_tf)) = query.get_single_mut() {
+        car.throttle = car.throttle.clamp(0.0, 1.0);
+        car.brake = car.brake.clamp(0.0, 1.0);
+        car.steering_angle = car.steering_angle.clamp(-1.0, 1.0);
+
+        let force = car_tf.forward() * car.throttle * 20.0;
+        // println!("car control force {force:?}");
+        // TODO(lucasw) not ackermann at all, just get some relationship
+        // between steer 'angle' and actually turning
+        let point = car_tf.translation()
+            + (car_tf.back() * 1.8)
+            + (car_tf.right() * car.steering_angle * 0.2);
+        external_force.apply_force_at_point(force, point, car_tf.translation());
+        // car.steering *= 0.9999;
+        car.brake *= 0.94;
+        car.throttle *= 0.97;
     }
 }
 
@@ -133,20 +199,23 @@ pub fn cast_ray(
             );
             // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
+            let filter_fr = 0.99;
             if let Some(hit) = hit {
                 // println!("{intersection:?}, {car} {external_impulse:?}");
                 // if hit.distance > 0.0
                 let compression = max_length - hit.distance;
-                let compression_delta = compression - car.compression[ind];
-                car.compression[ind] = compression;
-                let impulse_magnitude = compression * 3.0; // + compression_delta * 3.0;
-                if ind == 0 {
-                    println!("wheel: {ind}, {compression:.3} {compression_delta:.3} impulse {impulse_magnitude:.3}");
-                }
+                // let compression_delta = compression - car.compression[ind];
+                let compression_filtered =
+                    compression * (1.0 - filter_fr) + car.compression[ind] * filter_fr;
+                car.compression[ind] = compression_filtered;
+                // if ind == 0 {
+                //     println!("wheel: {ind}, {compression:.3} {compression_delta:.3} impulse {compression_filtered:.3}");
+                // }
+                // the spring only acts along the car up direction, ground normal doesn't matter
+                // here (it does matter for skidding though)
                 // let impulse = hit.normal * impulse_magnitude;
-                let impulse = car_tf.up() * impulse_magnitude;
+                let impulse = car_tf.up() * compression_filtered * 0.25;
                 // external_impulse.apply_impulse(impulse);
-                // TODO(lucasw) external impulse is unchanged by this
                 external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
 
                 // Color in blue the entity we just hit.
@@ -158,7 +227,7 @@ pub fn cast_ray(
                 // TODO(lucasw) apply forces/impulses to wheel if it is moving sideways with
                 // respect to the object it hit (for now assume hit object is static)
             } else {
-                car.compression[ind] = 0.0;
+                car.compression[ind] *= filter_fr;
             }
         }
         // println!("compression: {:?}, external impulse: {external_impulse:?}", car.compression);
