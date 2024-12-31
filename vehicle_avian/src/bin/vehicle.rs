@@ -8,6 +8,7 @@ pub struct Car {
     brake: f32,
     steering_angle: f32,
     compression: [f32; 4],
+    rec: rerun::RecordingStream,
 }
 
 impl Car {
@@ -19,46 +20,53 @@ impl Car {
         // , car_filter: &SpatialQueryFilter) {
     ) {
         let max_range = 100.0;
-        let elevation_angle_degrees: f32 = -30.0;
-        let elevation: f32 = elevation_angle_degrees.to_radians();
 
         // needs to be above the mesh of the vehicle
         let sensor_pos = car_tf.translation() + car_tf.up() * 1.0;
 
+        let mut points = Vec::new();
+
         for angle_degrees in (0..360).step_by(5) {
             let angle = (angle_degrees as f32).to_radians();
+            for elevation_angle_degrees in (-30..-5i32).step_by(5) {
+                let elevation = (elevation_angle_degrees as f32).to_radians();
 
-            let ray_pos = Vec3::new(
-                angle.cos() * elevation.cos(),
-                elevation.sin(),
-                angle.sin() * elevation.sin(),
-            );
-            // TODO(lucasw) pre-compute all these rays
-            let Ok(ray_dir) = Dir3::new(ray_pos) else {
-                continue;
-            };
+                let ray_pos = Vec3::new(
+                    angle.cos() * elevation.cos(),
+                    elevation.sin(),
+                    angle.sin() * elevation.cos(),
+                );
+                // TODO(lucasw) pre-compute all these rays
+                let Ok(ray_dir) = Dir3::new(ray_pos) else {
+                    continue;
+                };
 
-            // TODO(lucasw) rotate ray_dir with car_tf orientation
-            // TODO(lucasw) this collides with collision objects, but would rather
-            // collide with any mesh because that will have more interesting detail
-            // so find a bevy ray casting method not an avian physics one.
-            let hit = spatial_query.cast_ray(
-                // TODO(lucasw) get location from car outside the chassis collision volume
-                sensor_pos,
-                ray_dir,
-                max_range,
-                false,
-                &SpatialQueryFilter::default(),
-            );
-            // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
+                // TODO(lucasw) rotate ray_dir with car_tf orientation
+                // TODO(lucasw) this collides with collision objects, but would rather
+                // collide with any mesh because that will have more interesting detail
+                // so find a bevy ray casting method not an avian physics one.
+                let hit = spatial_query.cast_ray(
+                    // TODO(lucasw) get location from car outside the chassis collision volume
+                    sensor_pos,
+                    ray_dir,
+                    max_range,
+                    false,
+                    &SpatialQueryFilter::default(),
+                );
+                // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
-            let Some(hit) = hit else {
-                continue;
-            };
-            // the intersection point in world coordinates
-            let point = sensor_pos + ray_dir * hit.distance;
-            println!("{angle_degrees} {point:?}");
+                let Some(hit) = hit else {
+                    continue;
+                };
+                // the intersection point in world coordinates
+                let point = sensor_pos + ray_dir * hit.distance;
+                // println!("{angle_degrees} {point:?}");
+                points.push(rerun::Position3D::new(point.z, point.x, point.y));
+            }
         }
+        self.rec
+            .log("point_cloud", &rerun::Points3D::new(points))
+            .unwrap();
     }
 }
 
@@ -104,6 +112,11 @@ pub fn setup_physics(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // TODO(lucasw) how to return Result from Startup functions?
+    let rec = rerun::RecordingStreamBuilder::new("rerun_vehicle")
+        .connect_tcp()
+        .unwrap();
+
     // Some light to see something
     commands.spawn((
         PointLight {
@@ -147,6 +160,7 @@ pub fn setup_physics(
             brake: 0.0,
             steering_angle: 0.0,
             compression: [0.0, 0.0, 0.0, 0.0],
+            rec,
         };
         let car_command = commands.spawn((
             RigidBody::Dynamic,
