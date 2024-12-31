@@ -11,7 +11,9 @@ pub struct Car {
 }
 
 #[derive(Component)]
-pub struct CarCamera {}
+pub struct CarCamera {
+    offset: Vec3,
+}
 
 fn main() {
     App::new()
@@ -22,15 +24,26 @@ fn main() {
         )))
         .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
         .add_systems(Startup, (setup_graphics, setup_physics))
-        .add_systems(Update, (cast_ray, move_camera, control_car, update_car))
+        .add_systems(
+            Update,
+            (
+                cast_ray,
+                move_camera,
+                control_car,
+                update_car,
+                camera_car_update,
+            ),
+        )
         .run();
 }
 
 pub fn setup_graphics(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
-        Transform::from_xyz(-5.0, 7.0, 12.0).looking_at(Vec3::new(0.0, 2.5, 0.0), Vec3::Y),
-        CarCamera {},
+        // Transform::from_xyz(-5.0, 7.0, 12.0).looking_at(Vec3::new(0.0, 2.5, 0.0), Vec3::Y),
+        CarCamera {
+            offset: Vec3::new(0.0, 5.0, 30.0),
+        },
     ));
 }
 
@@ -99,22 +112,46 @@ pub fn setup_physics(
 }
 
 // camera control
-pub fn move_camera(
-    key_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut Transform, With<CarCamera>>,
-) {
-    if let Ok(mut transform) = query.get_single_mut() {
-        let tr_copy = transform.clone();
+pub fn move_camera(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut CarCamera>) {
+    if let Ok(mut camera) = query.get_single_mut() {
         if key_input.pressed(KeyCode::KeyW) {
-            transform.translation += tr_copy.forward() * 0.3;
-        } else if key_input.pressed(KeyCode::KeyS) {
-            transform.translation += tr_copy.back() * 0.27;
-        } else if key_input.pressed(KeyCode::KeyA) {
-            transform.translation += tr_copy.left() * 0.3;
-        } else if key_input.pressed(KeyCode::KeyD) {
-            transform.translation += tr_copy.right() * 0.3;
+            camera.offset += Vec3::Z * 0.3;
+        }
+        if key_input.pressed(KeyCode::KeyS) {
+            camera.offset -= Vec3::Z * 0.27;
+        }
+
+        if key_input.pressed(KeyCode::KeyA) {
+            camera.offset += Vec3::X * 0.3;
+        }
+        if key_input.pressed(KeyCode::KeyD) {
+            camera.offset -= Vec3::X * 0.3;
+        }
+
+        if key_input.pressed(KeyCode::KeyQ) {
+            camera.offset += Vec3::Y * 0.3;
+        }
+        if key_input.pressed(KeyCode::KeyZ) {
+            camera.offset -= Vec3::Y * 0.25;
         }
     }
+}
+
+pub fn camera_car_update(
+    car: Query<&GlobalTransform, With<Car>>,
+    mut camera: Query<(&CarCamera, &mut Transform)>,
+) {
+    let Ok(car) = car.get_single() else {
+        return;
+    };
+    let Ok((car_camera, mut camera_transform)) = camera.get_single_mut() else {
+        return;
+    };
+
+    let target = car_camera.offset + car.translation();
+    let delta = target - camera_transform.translation;
+    camera_transform.translation += delta * 0.02;
+    // println!("camera {:?}", camera_transform);
 }
 
 pub fn control_car(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut Car>) {
