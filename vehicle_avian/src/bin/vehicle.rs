@@ -12,6 +12,56 @@ pub struct Car {
 }
 
 impl Car {
+    fn update(&mut self, car_tf: &GlobalTransform, external_force: &mut ExternalForce) {
+        self.throttle = self.throttle.clamp(0.0, 1.0);
+        self.brake = self.brake.clamp(0.0, 1.0);
+        self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
+
+        let forward = car_tf.forward();
+        let right = car_tf.right();
+        let translation = car_tf.translation();
+
+        let force = forward * self.throttle * 20.0;
+        // println!("car control force {force:?}");
+        // TODO(lucasw) not ackermann at all, just get some relationship
+        // between steer 'angle' and actually turning
+        let point = car_tf.translation()
+            + (car_tf.back() * 1.8)
+            + (car_tf.right() * self.steering_angle * 0.1);
+        external_force.apply_force_at_point(force, point, translation);
+
+        self.steering_angle *= 0.98;
+        self.brake *= 0.94;
+        self.throttle *= 0.97;
+
+        self.rec
+            .log(
+                "car/steering_angle",
+                &rerun::Scalar::new(self.steering_angle as f64),
+            )
+            .unwrap();
+        self.rec
+            .log("car/throttle", &rerun::Scalar::new(self.throttle as f64))
+            .unwrap();
+
+        let sc = 3.0;
+        let sc1 = sc * 2.0 / 3.0;
+        let vectors = vec![
+            rerun::Vector3D::from([forward.z * sc, forward.x * sc, forward.y * sc]),
+            rerun::Vector3D::from([right.z * sc1, right.x * sc1, right.y * sc1]),
+        ];
+        let pos = rerun::Position3D::from([translation.z, translation.x, translation.y]);
+        let origins = vec![pos, pos];
+        self.rec
+            .log(
+                "car/axes",
+                &rerun::Arrows3D::from_vectors(vectors)
+                    .with_origins(origins)
+                    .with_radii(vec![0.15, 0.15]),
+            )
+            .unwrap();
+    }
+
     // do many ray casts all around the car
     fn laser_sensor_update(
         &mut self,
@@ -22,7 +72,7 @@ impl Car {
         let max_range = 100.0;
 
         // needs to be above the mesh of the vehicle
-        let sensor_pos = car_tf.translation() + car_tf.up() * 1.0;
+        let sensor_pos = car_tf.translation() + car_tf.up() * 1.0 + car_tf.forward() * 1.4;
 
         let mut points = Vec::new();
 
@@ -65,7 +115,7 @@ impl Car {
             }
         }
         self.rec
-            .log("point_cloud", &rerun::Points3D::new(points))
+            .log("car/point_cloud", &rerun::Points3D::new(points))
             .unwrap();
     }
 }
@@ -130,7 +180,7 @@ pub fn setup_physics(
 
     // ground
     {
-        let ground_size = 300.1;
+        let ground_size = 1200.0;
         let ground_height = 0.1;
 
         let ground = commands.spawn((
@@ -239,21 +289,7 @@ pub fn control_car(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut C
 
 pub fn update_car(mut query: Query<(&mut Car, &mut ExternalForce, &GlobalTransform)>) {
     if let Ok((mut car, mut external_force, car_tf)) = query.get_single_mut() {
-        car.throttle = car.throttle.clamp(0.0, 1.0);
-        car.brake = car.brake.clamp(0.0, 1.0);
-        car.steering_angle = car.steering_angle.clamp(-1.0, 1.0);
-
-        let force = car_tf.forward() * car.throttle * 20.0;
-        // println!("car control force {force:?}");
-        // TODO(lucasw) not ackermann at all, just get some relationship
-        // between steer 'angle' and actually turning
-        let point = car_tf.translation()
-            + (car_tf.back() * 1.8)
-            + (car_tf.right() * car.steering_angle * 0.2);
-        external_force.apply_force_at_point(force, point, car_tf.translation());
-        // car.steering *= 0.9999;
-        car.brake *= 0.94;
-        car.throttle *= 0.97;
+        car.update(car_tf, &mut external_force);
     }
 }
 
@@ -318,7 +354,7 @@ pub fn cast_ray(
                 // the spring only acts along the car up direction, ground normal doesn't matter
                 // here (it does matter for skidding though)
                 // let impulse = hit.normal * impulse_magnitude;
-                let impulse = car_tf.up() * compression_filtered * 0.25;
+                let impulse = car_tf.up() * compression_filtered * 0.45;
                 // external_impulse.apply_impulse(impulse);
                 external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
 
