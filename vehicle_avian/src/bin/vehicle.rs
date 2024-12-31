@@ -10,6 +10,58 @@ pub struct Car {
     compression: [f32; 4],
 }
 
+impl Car {
+    // do many ray casts all around the car
+    fn laser_sensor_update(
+        &mut self,
+        spatial_query: &SpatialQuery,
+        car_tf: &GlobalTransform,
+        // , car_filter: &SpatialQueryFilter) {
+    ) {
+        let max_range = 100.0;
+        let elevation_angle_degrees: f32 = -30.0;
+        let elevation: f32 = elevation_angle_degrees.to_radians();
+
+        // needs to be above the mesh of the vehicle
+        let sensor_pos = car_tf.translation() + car_tf.up() * 1.0;
+
+        for angle_degrees in (0..360).step_by(5) {
+            let angle = (angle_degrees as f32).to_radians();
+
+            let ray_pos = Vec3::new(
+                angle.cos() * elevation.cos(),
+                elevation.sin(),
+                angle.sin() * elevation.sin(),
+            );
+            // TODO(lucasw) pre-compute all these rays
+            let Ok(ray_dir) = Dir3::new(ray_pos) else {
+                continue;
+            };
+
+            // TODO(lucasw) rotate ray_dir with car_tf orientation
+            // TODO(lucasw) this collides with collision objects, but would rather
+            // collide with any mesh because that will have more interesting detail
+            // so find a bevy ray casting method not an avian physics one.
+            let hit = spatial_query.cast_ray(
+                // TODO(lucasw) get location from car outside the chassis collision volume
+                sensor_pos,
+                ray_dir,
+                max_range,
+                false,
+                &SpatialQueryFilter::default(),
+            );
+            // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
+
+            let Some(hit) = hit else {
+                continue;
+            };
+            // the intersection point in world coordinates
+            let point = sensor_pos + ray_dir * hit.distance;
+            println!("{angle_degrees} {point:?}");
+        }
+    }
+}
+
 #[derive(Component)]
 pub struct CarCamera {
     offset: Vec3,
@@ -193,12 +245,16 @@ pub fn update_car(mut query: Query<(&mut Car, &mut ExternalForce, &GlobalTransfo
 
 pub fn cast_ray(
     // mut commands: Commands,
+    // TODO(lucasw) try SpatialQueryPipeline
     spatial_query: SpatialQuery,
     mut query: Query<(&mut Car, Entity, &mut ExternalImpulse, &GlobalTransform)>,
 ) {
     let max_length = 0.4;
     let wheel_y = 0.15;
     for (mut car, car_entity, mut external_impulse, car_tf) in query.iter_mut() {
+        let car_filter = SpatialQueryFilter::default().with_excluded_entities([car_entity]);
+        car.laser_sensor_update(&spatial_query, car_tf); // , &car_filter);
+
         // println!("{:?} {external_impulse:?}", car_tf.translation());
         // four wheels
         // TODO(lucasw) need to use Car size as set above in xs, ys, & zs
@@ -229,10 +285,7 @@ pub fn cast_ray(
                 Dir3::new(down).unwrap(),
                 max_length, // f32::MAX,
                 false,
-                &SpatialQueryFilter::default().with_excluded_entities([car_entity]),
-                // TODO(lucasw) how to make a queryfilter to exclude the object the ray originates
-                // from, the car?  But it ought to hit other cars if anyy as well.
-                // SpatialQueryFilter::new(<Without<Car>>),
+                &car_filter,
             );
             // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
