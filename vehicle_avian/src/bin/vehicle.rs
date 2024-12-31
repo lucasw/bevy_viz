@@ -14,21 +14,40 @@ pub struct Car {
 
 impl Car {
     fn update(&mut self, car_tf: &GlobalTransform, external_force: &mut ExternalForce) {
-        self.throttle = self.throttle.clamp(0.0, 1.0);
-        self.brake = self.brake.clamp(0.0, 1.0);
-        self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
+        let arrow =
+            rerun::Arrows3D::from_vectors([(1.0, 0.0, 0.0)]).with_origins([(0.0, 0.0, 0.0)]);
+        self.rec.log("world", &arrow).unwrap();
 
         let forward = car_tf.forward();
         let right = car_tf.right();
         let translation = car_tf.translation();
 
+        let rotation = car_tf.rotation();
+
+        // TODO(lucasw) this rotation needs to be rotated
+        let car_xyzw_raw = [rotation.x, rotation.y, rotation.z, rotation.w];
+        let car_rotation_rr = rerun::Quaternion::from_xyzw(car_xyzw_raw);
+
+        // let car_translation_raw = [translation.x, translation.y, translation.z];
+        let car_translation_rr =
+            rerun::components::Translation3D::new(translation.x, translation.y, translation.z);
+        let car_transform_rr =
+            rerun::Transform3D::from_translation_rotation(car_translation_rr, car_rotation_rr);
+        // let car_transform_rr = rerun::Transform3D::from_translation(car_translation_rr);
+        self.rec.log("world/car", &car_transform_rr).unwrap();
+        self.rec.log("world/car/arrow", &arrow).unwrap();
+
+        self.throttle = self.throttle.clamp(0.0, 1.0);
+        self.brake = self.brake.clamp(0.0, 1.0);
+        self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
+
         let force = forward * self.throttle * 20.0;
         // println!("car control force {force:?}");
         // TODO(lucasw) not ackermann at all, just get some relationship
         // between steer 'angle' and actually turning
-        let point = car_tf.translation()
+        let point = translation
             + (car_tf.back() * 1.8)
-            + (car_tf.right() * self.steering_angle * 0.1);
+            + (right * self.steering_angle * 0.1);
         external_force.apply_force_at_point(force, point, translation);
 
         self.steering_angle *= 0.98;
@@ -37,28 +56,14 @@ impl Car {
 
         self.rec
             .log(
-                "car/steering_angle",
+                "world/car/steering_angle",
                 &rerun::Scalar::new(self.steering_angle as f64),
             )
             .unwrap();
         self.rec
-            .log("car/throttle", &rerun::Scalar::new(self.throttle as f64))
-            .unwrap();
-
-        let sc = 3.0;
-        let sc1 = sc * 2.0 / 3.0;
-        let vectors = vec![
-            rerun::Vector3D::from([forward.z * sc, forward.x * sc, forward.y * sc]),
-            rerun::Vector3D::from([right.z * sc1, right.x * sc1, right.y * sc1]),
-        ];
-        let pos = rerun::Position3D::from([translation.z, translation.x, translation.y]);
-        let origins = vec![pos, pos];
-        self.rec
             .log(
-                "car/axes",
-                &rerun::Arrows3D::from_vectors(vectors)
-                    .with_origins(origins)
-                    .with_radii(vec![0.15, 0.15]),
+                "world/car/throttle",
+                &rerun::Scalar::new(self.throttle as f64),
             )
             .unwrap();
     }
@@ -114,11 +119,13 @@ impl Car {
                 // the intersection point in world coordinates
                 let point = sensor_pos_in_world + ray_dir_in_world * hit.distance;
                 // println!("{angle_degrees} {point:?}");
-                points.push(rerun::Position3D::new(point.z, point.x, point.y));
+                points.push(rerun::Position3D::new(point.x, point.y, point.z));
             }
         }
         self.rec
-            .log("car/point_cloud", &rerun::Points3D::new(points))
+            // TODO(lucasw) put it into the car frame
+            // .log("world/car/point_cloud", &rerun::Points3D::new(points))
+            .log("world/car_point_cloud", &rerun::Points3D::new(points))
             .unwrap();
     }
 }
@@ -179,6 +186,25 @@ pub fn setup_physics(
     let rec = rerun::RecordingStreamBuilder::new("rerun_vehicle")
         .connect_tcp()
         .unwrap();
+
+    rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_UP)
+        .unwrap(); // Set an up-axis
+    rec.log_static(
+        "world/xyz",
+        &rerun::Arrows3D::from_vectors(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], //
+        )
+        .with_colors([[255, 0, 0], [0, 255, 0], [0, 0, 255]]),
+    )
+    .unwrap();
+    rec.log_static(
+        "world/car/xyz",
+        &rerun::Arrows3D::from_vectors(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], //
+        )
+        .with_colors([[255, 0, 0], [0, 255, 0], [0, 0, 255]]),
+    )
+    .unwrap();
 
     // Some light to see something
     commands.spawn((
