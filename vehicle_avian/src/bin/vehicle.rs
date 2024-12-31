@@ -1,6 +1,7 @@
 use avian3d::prelude::*;
 use bevy::color::palettes::css::SILVER;
 use bevy::prelude::*;
+use bevy::window;
 
 #[derive(Component)]
 pub struct Car {
@@ -72,7 +73,7 @@ impl Car {
         let max_range = 100.0;
 
         // needs to be above the mesh of the vehicle
-        let sensor_pos = car_tf.translation() + car_tf.up() * 1.0 + car_tf.forward() * 1.4;
+        let sensor_pos_in_world = car_tf.translation() + car_tf.up() * 1.0 + car_tf.forward() * 1.4;
 
         let mut points = Vec::new();
 
@@ -81,13 +82,15 @@ impl Car {
             for elevation_angle_degrees in (-30..-5i32).step_by(5) {
                 let elevation = (elevation_angle_degrees as f32).to_radians();
 
-                let ray_pos = Vec3::new(
+                let ray_vec_in_body = Vec3::new(
                     angle.cos() * elevation.cos(),
                     elevation.sin(),
                     angle.sin() * elevation.cos(),
                 );
+
+                let ray_vec_in_world = car_tf.rotation() * ray_vec_in_body;
                 // TODO(lucasw) pre-compute all these rays
-                let Ok(ray_dir) = Dir3::new(ray_pos) else {
+                let Ok(ray_dir_in_world) = Dir3::new(ray_vec_in_world) else {
                     continue;
                 };
 
@@ -97,8 +100,8 @@ impl Car {
                 // so find a bevy ray casting method not an avian physics one.
                 let hit = spatial_query.cast_ray(
                     // TODO(lucasw) get location from car outside the chassis collision volume
-                    sensor_pos,
-                    ray_dir,
+                    sensor_pos_in_world,
+                    ray_dir_in_world,
                     max_range,
                     false,
                     &SpatialQueryFilter::default(),
@@ -109,7 +112,7 @@ impl Car {
                     continue;
                 };
                 // the intersection point in world coordinates
-                let point = sensor_pos + ray_dir * hit.distance;
+                let point = sensor_pos_in_world + ray_dir_in_world * hit.distance;
                 // println!("{angle_degrees} {point:?}");
                 points.push(rerun::Position3D::new(point.z, point.x, point.y));
             }
@@ -132,7 +135,17 @@ fn main() {
             0xF9 as f32 / 255.0,
             0xFF as f32 / 255.0,
         )))
-        .add_plugins((DefaultPlugins, PhysicsPlugins::default()))
+        .add_plugins((
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    resolution: window::WindowResolution::new(800., 600.)
+                        .with_scale_factor_override(1.0),
+                    ..default()
+                }),
+                ..default()
+            }),
+            PhysicsPlugins::default(),
+        ))
         .add_systems(Startup, (setup_graphics, setup_physics))
         .add_systems(
             Update,
