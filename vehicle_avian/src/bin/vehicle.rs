@@ -5,6 +5,11 @@ use bevy::window;
 
 #[derive(Component)]
 pub struct Car {
+    // half dimensions of chassis
+    xs: f32,
+    ys: f32,
+    zs: f32,
+    lidar_position: Vec3,
     throttle: f32,
     brake: f32,
     steering_angle: f32,
@@ -12,7 +17,59 @@ pub struct Car {
     rec: rerun::RecordingStream,
 }
 
+fn bevy_vec3_to_rerun_vec3d(v: &Vec3) -> rerun::Vec3D {
+    rerun::Vec3D::new(v.x, v.y, v.z)
+}
+
 impl Car {
+    fn new(xs: f32, ys: f32, zs: f32, rec: rerun::RecordingStream) -> Self {
+        let arrows =
+            rerun::Arrows3D::from_vectors([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+                .with_colors([[255, 0, 0], [0, 255, 0], [0, 0, 255]]);
+        rec.log_static("world/car/xyz", &arrows).unwrap();
+
+        rec.log(
+            "world/car/camera_mount",
+            &rerun::Transform3D::from_translation(rerun::Vec3D::new(0.0, ys * 1.6, -zs * 0.7)),
+        )
+        .unwrap();
+        // rerun Camera
+        rec.log(
+            "world/car/camera_mount/camera",
+            &rerun::Pinhole::from_focal_length_and_resolution([3., 4.], [3., 3.])
+                // TODO(lucasw) expected this to inherit from the world root but need to specify
+                .with_camera_xyz(rerun::components::ViewCoordinates::RUB),
+        )
+        .unwrap();
+
+        let lidar_position = Vec3::new(0.0, ys * 3.5, -zs * 1.1);
+        rec.log(
+            "world/car/lidar_position",
+            &rerun::Transform3D::from_translation(bevy_vec3_to_rerun_vec3d(&lidar_position)),
+        )
+        .unwrap();
+        rec.log_static("world/car/lidar_position/xyz", &arrows)
+            .unwrap();
+
+        rec.log(
+            "world/car/chassis",
+            &rerun::Boxes3D::from_half_sizes([(xs, ys, zs)]),
+        )
+        .unwrap();
+
+        Car {
+            xs,
+            ys,
+            zs,
+            lidar_position,
+            throttle: 0.0,
+            brake: 0.0,
+            steering_angle: 0.0,
+            compression: [0.0, 0.0, 0.0, 0.0],
+            rec,
+        }
+    }
+
     fn update(&mut self, car_tf: &GlobalTransform, external_force: &mut ExternalForce) {
         let arrow =
             rerun::Arrows3D::from_vectors([(1.0, 0.0, 0.0)]).with_origins([(0.0, 0.0, 0.0)]);
@@ -41,13 +98,12 @@ impl Car {
         self.brake = self.brake.clamp(0.0, 1.0);
         self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
 
-        let force = forward * self.throttle * 20.0;
+        let force = forward * self.throttle * 40.0;
         // println!("car control force {force:?}");
         // TODO(lucasw) not ackermann at all, just get some relationship
         // between steer 'angle' and actually turning
-        let point = translation
-            + (car_tf.back() * 1.8)
-            + (right * self.steering_angle * 0.1);
+        let point =
+            translation + (car_tf.back() * self.zs * 0.9) + (right * self.steering_angle * 0.1);
         external_force.apply_force_at_point(force, point, translation);
 
         self.steering_angle *= 0.98;
@@ -69,7 +125,7 @@ impl Car {
     }
 
     // do many ray casts all around the car
-    fn laser_sensor_update(
+    fn lidar_update(
         &mut self,
         spatial_query: &SpatialQuery,
         car_tf: &GlobalTransform,
@@ -77,14 +133,15 @@ impl Car {
     ) {
         let max_range = 100.0;
 
-        // needs to be above the mesh of the vehicle
-        let sensor_pos_in_world = car_tf.translation() + car_tf.up() * 1.0 + car_tf.forward() * 1.4;
+        // TODO(lucasw) transform lidar_position with car_tf in one step?
+        let lidar_rel_pos = car_tf.rotation() * self.lidar_position;
+        let sensor_pos_in_world = car_tf.translation() + lidar_rel_pos;
 
         let mut points = Vec::new();
 
         for angle_degrees in (0..360).step_by(5) {
             let angle = (angle_degrees as f32).to_radians();
-            for elevation_angle_degrees in (-30..-5i32).step_by(5) {
+            for elevation_angle_degrees in (-40..-5i32).step_by(5) {
                 let elevation = (elevation_angle_degrees as f32).to_radians();
 
                 let ray_vec_in_body = Vec3::new(
@@ -157,7 +214,7 @@ fn main() {
         .add_systems(
             Update,
             (
-                cast_ray,
+                car_suspension,
                 move_camera,
                 control_car,
                 update_car,
@@ -187,18 +244,11 @@ pub fn setup_physics(
         .connect_tcp()
         .unwrap();
 
-    rec.log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_UP)
+    // match bevy defaults X=Right, Y=Up, Z=Back
+    rec.log_static("world", &rerun::ViewCoordinates::RUB)
         .unwrap(); // Set an up-axis
     rec.log_static(
         "world/xyz",
-        &rerun::Arrows3D::from_vectors(
-            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], //
-        )
-        .with_colors([[255, 0, 0], [0, 255, 0], [0, 0, 255]]),
-    )
-    .unwrap();
-    rec.log_static(
-        "world/car/xyz",
         &rerun::Arrows3D::from_vectors(
             [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], //
         )
@@ -243,17 +293,17 @@ pub fn setup_physics(
         let xs = 2.0; // left/right
         let ys = 0.5; // up/down
         let zs = 4.0; // forward/back
+        let radius = 0.4;
 
-        let car = Car {
-            throttle: 0.0,
-            brake: 0.0,
-            steering_angle: 0.0,
-            compression: [0.0, 0.0, 0.0, 0.0],
-            rec,
-        };
+        let car = Car::new(xs, ys, zs, rec);
         let car_command = commands.spawn((
             RigidBody::Dynamic,
-            Collider::cuboid(xs, ys, zs),
+            Collider::round_cuboid(
+                (xs - radius) * 2.0,
+                (ys - radius) * 2.0,
+                (zs - radius) * 2.0,
+                radius,
+            ),
             // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
             Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
             MeshMaterial3d(materials.add(Color::from(SILVER))),
@@ -332,7 +382,7 @@ pub fn update_car(mut query: Query<(&mut Car, &mut ExternalForce, &GlobalTransfo
     }
 }
 
-pub fn cast_ray(
+pub fn car_suspension(
     // mut commands: Commands,
     // TODO(lucasw) try SpatialQueryPipeline
     spatial_query: SpatialQuery,
@@ -341,8 +391,9 @@ pub fn cast_ray(
     let max_length = 0.4;
     let wheel_y = 0.15;
     for (mut car, car_entity, mut external_impulse, car_tf) in query.iter_mut() {
+        // TODO(lucasw) car.update_suspension()
         let car_filter = SpatialQueryFilter::default().with_excluded_entities([car_entity]);
-        car.laser_sensor_update(&spatial_query, car_tf); // , &car_filter);
+        car.lidar_update(&spatial_query, car_tf); // , &car_filter);
 
         // println!("{:?} {external_impulse:?}", car_tf.translation());
         // four wheels
