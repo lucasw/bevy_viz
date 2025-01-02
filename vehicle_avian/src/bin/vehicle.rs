@@ -1,6 +1,10 @@
 use avian3d::prelude::*;
-use bevy::color::palettes::css::SILVER;
+use bevy::color::palettes::css;
 use bevy::prelude::*;
+use bevy::render::{
+    render_asset::RenderAssetUsages,
+    render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 use bevy::window;
 
 #[derive(Component)]
@@ -33,12 +37,26 @@ impl Car {
             &rerun::Transform3D::from_translation(rerun::Vec3D::new(0.0, ys * 1.6, -zs * 0.7)),
         )
         .unwrap();
-        // rerun Camera
         rec.log(
             "world/car/camera_mount/camera",
             &rerun::Pinhole::from_focal_length_and_resolution([3., 4.], [3., 3.])
                 // TODO(lucasw) expected this to inherit from the world root but need to specify
-                .with_camera_xyz(rerun::components::ViewCoordinates::RUB),
+                .with_camera_xyz(rerun::components::ViewCoordinates::RUB)
+                .with_image_plane_distance(1.0),
+        )
+        .unwrap();
+
+        rec.log(
+            "world/car/camera_mount_selfie",
+            &rerun::Transform3D::from_translation(rerun::Vec3D::new(0.0, ys * 3.0, zs * 3.0)),
+        )
+        .unwrap();
+        rec.log(
+            "world/car/camera_mount_selfie/camera",
+            &rerun::Pinhole::from_focal_length_and_resolution([3., 4.], [3., 3.])
+                // TODO(lucasw) expected this to inherit from the world root but need to specify
+                .with_camera_xyz(rerun::components::ViewCoordinates::RUB)
+                .with_image_plane_distance(1.0),
         )
         .unwrap();
 
@@ -98,7 +116,9 @@ impl Car {
         self.brake = self.brake.clamp(0.0, 1.0);
         self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
 
-        let force = forward * self.throttle * 40.0;
+        // TODO(lucasw) only apply this to wheels that are touching the ground?
+        // TODO(lucasw) apply less force in proportion to velocity, most when at a standstill
+        let force = forward * self.throttle * 25.0;
         // println!("car control force {force:?}");
         // TODO(lucasw) not ackermann at all, just get some relationship
         // between steer 'angle' and actually turning
@@ -141,7 +161,7 @@ impl Car {
 
         for angle_degrees in (0..360).step_by(5) {
             let angle = (angle_degrees as f32).to_radians();
-            for elevation_angle_degrees in (-40..-5i32).step_by(5) {
+            for elevation_angle_degrees in (-40..20i32).step_by(5) {
                 let elevation = (elevation_angle_degrees as f32).to_radians();
 
                 let ray_vec_in_body = Vec3::new(
@@ -202,7 +222,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
-                    resolution: window::WindowResolution::new(800., 600.)
+                    resolution: window::WindowResolution::new(1280., 720.)
                         .with_scale_factor_override(1.0),
                     ..default()
                 }),
@@ -237,6 +257,7 @@ pub fn setup_graphics(mut commands: Commands) {
 pub fn setup_physics(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // TODO(lucasw) how to return Result from Startup functions?
@@ -259,12 +280,12 @@ pub fn setup_physics(
     // Some light to see something
     commands.spawn((
         PointLight {
-            intensity: 4_000_000.,
-            range: 100.,
+            intensity: 45_000_000.,
+            range: 500.,
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(8., 22., 8.),
+        Transform::from_xyz(100., 82., 40.),
     ));
 
     // ground
@@ -276,10 +297,32 @@ pub fn setup_physics(
             RigidBody::Static,
             Collider::cuboid(ground_size, ground_height, ground_size),
             Mesh3d(meshes.add(Plane3d::default().mesh().size(ground_size, ground_size))),
-            MeshMaterial3d(materials.add(Color::from(SILVER))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                // TODO(lucasw) add uv coordinates to make this repeat
+                base_color_texture: Some(images.add(uv_debug_texture())),
+                ..default()
+            })),
             Transform::from_xyz(0.0, -ground_height, 0.0),
         ));
         println!("spawned ground: {}", ground.id());
+
+        // some bumps on the ground
+        {
+            for i in 0..10 {
+                let i = i as f32;
+                let radius = 3.0 + i / 2.0;
+                let length = 300.0;
+                commands.spawn((
+                    RigidBody::Static,
+                    Collider::capsule(radius, length),
+                    Mesh3d(meshes.add(Capsule3d::new(radius, length))),
+                    MeshMaterial3d(materials.add(Color::from(css::BEIGE))),
+                    Transform::from_xyz(0.0, -radius * 0.75, -(i + 3.5) * 24.0).with_rotation(
+                        Quat::from_rotation_z(std::f32::consts::PI / 2.0 + 0.002 * i),
+                    ),
+                ));
+            }
+        }
     }
 
     // car chassis
@@ -291,9 +334,9 @@ pub fn setup_physics(
 
         // half sizes
         let xs = 2.0; // left/right
-        let ys = 0.5; // up/down
+        let ys = 0.75; // up/down
         let zs = 4.0; // forward/back
-        let radius = 0.4;
+        let radius = ys * 0.9;
 
         let car = Car::new(xs, ys, zs, rec);
         let car_command = commands.spawn((
@@ -306,7 +349,7 @@ pub fn setup_physics(
             ),
             // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
             Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
-            MeshMaterial3d(materials.add(Color::from(SILVER))),
+            MeshMaterial3d(materials.add(Color::from(css::BLUE))),
             Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_x(0.2)),
             car,
             ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
@@ -320,17 +363,17 @@ pub fn setup_physics(
 pub fn move_camera(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut CarCamera>) {
     if let Ok(mut camera) = query.get_single_mut() {
         if key_input.pressed(KeyCode::KeyW) {
-            camera.offset += Vec3::Z * 0.3;
+            camera.offset -= Vec3::Z * 0.3;
         }
         if key_input.pressed(KeyCode::KeyS) {
-            camera.offset -= Vec3::Z * 0.27;
+            camera.offset += Vec3::Z * 0.27;
         }
 
         if key_input.pressed(KeyCode::KeyA) {
-            camera.offset += Vec3::X * 0.3;
+            camera.offset -= Vec3::X * 0.3;
         }
         if key_input.pressed(KeyCode::KeyD) {
-            camera.offset -= Vec3::X * 0.3;
+            camera.offset += Vec3::X * 0.3;
         }
 
         if key_input.pressed(KeyCode::KeyQ) {
@@ -388,48 +431,51 @@ pub fn car_suspension(
     spatial_query: SpatialQuery,
     mut query: Query<(&mut Car, Entity, &mut ExternalImpulse, &GlobalTransform)>,
 ) {
-    let max_length = 0.4;
-    let wheel_y = 0.15;
+    let max_length = 1.4;
     for (mut car, car_entity, mut external_impulse, car_tf) in query.iter_mut() {
         // TODO(lucasw) car.update_suspension()
         let car_filter = SpatialQueryFilter::default().with_excluded_entities([car_entity]);
         car.lidar_update(&spatial_query, car_tf); // , &car_filter);
+        let wheel_radius = 0.5;
+        let wheel_y = car.ys - wheel_radius;
 
         // println!("{:?} {external_impulse:?}", car_tf.translation());
         // four wheels
         // TODO(lucasw) need to use Car size as set above in xs, ys, & zs
         let wheel_positions = vec![
             car_tf.translation()
-                + car_tf.forward() * 0.8
+                + car_tf.forward() * car.zs * 0.8
                 + car_tf.down() * wheel_y
-                + car_tf.left() * 1.0,
+                + car_tf.left() * car.xs,
             car_tf.translation()
-                + car_tf.forward() * 0.8
+                + car_tf.forward() * car.zs * 0.8
                 + car_tf.down() * wheel_y
-                + car_tf.right() * 1.0,
+                + car_tf.right() * car.xs,
             car_tf.translation()
-                + car_tf.back() * 0.8
+                + car_tf.back() * car.zs * 0.8
                 + car_tf.down() * wheel_y
-                + car_tf.left() * 1.0,
+                + car_tf.left() * car.xs,
             car_tf.translation()
-                + car_tf.back() * 0.8
+                + car_tf.back() * car.zs * 0.8
                 + car_tf.down() * wheel_y
-                + car_tf.right() * 1.0,
+                + car_tf.right() * car.xs,
         ];
         // println!("{:?}", car);
         for (ind, wheel_pos) in wheel_positions.into_iter().enumerate() {
             let down = *car_tf.down();
+            let up = *car_tf.up();
+            let dir = Dir3::new(down).unwrap();
             let hit = spatial_query.cast_ray(
                 // TODO(lucasw) get location from car outside the chassis collision volume
                 wheel_pos,
-                Dir3::new(down).unwrap(),
+                dir,
                 max_length, // f32::MAX,
                 false,
                 &car_filter,
             );
             // println!("translation: {:?}, down: {:?} -> {hit:?}", car_tf.translation(), car_tf.down());
 
-            let filter_fr = 0.99;
+            let filter_fr = 0.0;
             if let Some(hit) = hit {
                 // println!("{intersection:?}, {car} {external_impulse:?}");
                 // if hit.distance > 0.0
@@ -444,10 +490,21 @@ pub fn car_suspension(
                 // the spring only acts along the car up direction, ground normal doesn't matter
                 // here (it does matter for skidding though)
                 // let impulse = hit.normal * impulse_magnitude;
-                let impulse = car_tf.up() * compression_filtered * 0.45;
+                let impulse = up * compression_filtered * 0.05;
                 // external_impulse.apply_impulse(impulse);
                 external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
 
+                let contact_point = wheel_pos + dir * hit.distance;
+                // println!("contact_point {contact_point} {impulse}");
+                car.rec
+                    .log(
+                        format!("world/car_wheel_contact{ind}"),
+                        &rerun::LineStrips3D::new([[
+                            bevy_vec3_to_rerun_vec3d(&contact_point),
+                            bevy_vec3_to_rerun_vec3d(&(contact_point + up * impulse * 30.0)),
+                        ]]),
+                    )
+                    .unwrap();
                 // Color in blue the entity we just hit.
                 // Because of the query filter, only colliders attached to a dynamic body
                 // will get an event.
@@ -459,7 +516,47 @@ pub fn car_suspension(
             } else {
                 car.compression[ind] *= filter_fr;
             }
+
+            {
+                let pos = wheel_pos + (max_length - car.compression[ind] - wheel_radius) * dir;
+                car.rec
+                    .log(
+                        format!("world/wheel{ind}"),
+                        &rerun::Capsules3D::from_lengths_and_radii([0.2], [wheel_radius])
+                            .with_translations([bevy_vec3_to_rerun_vec3d(&pos)]),
+                    )
+                    .unwrap();
+            }
         }
         // println!("compression: {:?}, external impulse: {external_impulse:?}", car.compression);
     }
+}
+
+/// Creates a colorful test pattern
+fn uv_debug_texture() -> Image {
+    const TEXTURE_SIZE: usize = 8;
+
+    let mut palette: [u8; 32] = [
+        255, 102, 159, 255, 255, 159, 102, 255, 236, 255, 102, 255, 121, 255, 102, 255, 102, 255,
+        198, 255, 102, 198, 255, 255, 121, 102, 255, 255, 236, 102, 255, 255,
+    ];
+
+    let mut texture_data = [0; TEXTURE_SIZE * TEXTURE_SIZE * 4];
+    for y in 0..TEXTURE_SIZE {
+        let offset = TEXTURE_SIZE * y * 4;
+        texture_data[offset..(offset + TEXTURE_SIZE * 4)].copy_from_slice(&palette);
+        palette.rotate_right(4);
+    }
+
+    Image::new_fill(
+        Extent3d {
+            width: TEXTURE_SIZE as u32,
+            height: TEXTURE_SIZE as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &texture_data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
 }
