@@ -1,3 +1,4 @@
+use avian3d::math::*;
 use avian3d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -13,6 +14,8 @@ pub struct Car {
     xs: f32,
     ys: f32,
     zs: f32,
+    wheel: Vec3,
+    wheel_radius: f32,
     lidar_position: Vec3,
     throttle: f32,
     brake: f32,
@@ -48,7 +51,7 @@ impl Car {
 
         rec.log(
             "world/car/camera_mount_selfie",
-            &rerun::Transform3D::from_translation(rerun::Vec3D::new(0.0, ys * 3.0, zs * 3.0)),
+            &rerun::Transform3D::from_translation(rerun::Vec3D::new(0.0, ys * 3.0, zs * 4.0)),
         )
         .unwrap();
         rec.log(
@@ -75,10 +78,15 @@ impl Car {
         )
         .unwrap();
 
+        let wheel_radius = 1.5;
+        let wheel = Vec3::new(xs * 1.1, -ys + wheel_radius - 1.2, zs * 0.9);
+
         Car {
             xs,
             ys,
             zs,
+            wheel,
+            wheel_radius,
             lidar_position,
             throttle: 0.0,
             brake: 0.0,
@@ -112,19 +120,26 @@ impl Car {
         self.rec.log("world/car", &car_transform_rr).unwrap();
         self.rec.log("world/car/arrow", &arrow).unwrap();
 
-        self.throttle = self.throttle.clamp(0.0, 1.0);
+        self.throttle = self.throttle.clamp(-0.7, 1.0); // (0.0, 1.0);
         self.brake = self.brake.clamp(0.0, 1.0);
         self.steering_angle = self.steering_angle.clamp(-1.0, 1.0);
 
         // TODO(lucasw) only apply this to wheels that are touching the ground?
         // TODO(lucasw) apply less force in proportion to velocity, most when at a standstill
-        let force = forward * self.throttle * 25.0;
+        let force = forward * self.throttle * 45.0;
         // println!("car control force {force:?}");
         // TODO(lucasw) not ackermann at all, just get some relationship
         // between steer 'angle' and actually turning
         let point =
             translation + (car_tf.back() * self.zs * 0.9) + (right * self.steering_angle * 0.1);
-        external_force.apply_force_at_point(force, point, translation);
+        // external_force.apply_force_at_point(force, point, translation);
+        external_force.apply_force(rotation * Vector::Z * force);
+
+        // TODO(lucasw) temporary, shift the car sideways instead of steering
+        {
+            let force = -self.steering_angle * 42.0;
+            external_force.apply_force(rotation * Vector::X * force);
+        }
 
         self.steering_angle *= 0.98;
         self.brake *= 0.94;
@@ -195,6 +210,7 @@ impl Car {
                 };
                 // the intersection point in world coordinates
                 let point = sensor_pos_in_world + ray_dir_in_world * hit.distance;
+                // TODO(lucasw) transform back into car_tf.rotation + sensor_pos_in_world frame
                 // println!("{angle_degrees} {point:?}");
                 points.push(rerun::Position3D::new(point.x, point.y, point.z));
             }
@@ -327,10 +343,8 @@ pub fn setup_physics(
 
     // car chassis
     {
-        // y is vertical
-        let x = 0.0;
-        let y = 5.0;
-        let z = 0.0;
+        // x is right, y is up, z is backwards
+        let pos = Vec3::new(0.0, 4.5, 3.0);
 
         // half sizes
         let xs = 2.0; // left/right
@@ -339,23 +353,75 @@ pub fn setup_physics(
         let radius = ys * 0.9;
 
         let car = Car::new(xs, ys, zs, rec);
-        let car_command = commands.spawn((
-            RigidBody::Dynamic,
-            Collider::round_cuboid(
-                (xs - radius) * 2.0,
-                (ys - radius) * 2.0,
-                (zs - radius) * 2.0,
-                radius,
-            ),
-            // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
-            Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
-            MeshMaterial3d(materials.add(Color::from(css::BLUE))),
-            Transform::from_xyz(x, y, z).with_rotation(Quat::from_rotation_x(0.2)),
-            car,
-            ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
-            ExternalImpulse::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
-        ));
-        println!("spawned car id: {}", car_command.id());
+        let wheel_width = 2.5;
+
+        let wheel_capsule = Capsule3d::new(car.wheel_radius, wheel_width / 2.0);
+        let wheel_mesh = meshes.add(wheel_capsule);
+
+        let wheel_rot = Quat::from_axis_angle(Vector::Z, std::f32::consts::PI / 2.0);
+        let car_wheel_r_pos = Vec3::new(car.wheel.x + wheel_width, car.wheel.y, car.wheel.z);
+        let wheel_r = commands
+            .spawn((
+                RigidBody::Dynamic,
+                Collider::capsule(car.wheel_radius, wheel_width),
+                Mesh3d(meshes.add(wheel_capsule)),
+                MeshMaterial3d(materials.add(Color::from(css::BLACK))),
+                Transform::from_translation(pos + car_wheel_r_pos).with_rotation(wheel_rot),
+                MassPropertiesBundle::from_shape(&wheel_capsule, 0.1),
+            ))
+            .id();
+
+        let car_wheel_l_pos = Vec3::new(-car.wheel.x - wheel_width, car.wheel.y, car.wheel.z);
+        let wheel_l = commands
+            .spawn((
+                RigidBody::Dynamic,
+                Collider::capsule(car.wheel_radius, wheel_width),
+                Mesh3d(meshes.add(wheel_capsule)),
+                MeshMaterial3d(materials.add(Color::from(css::WHITE))),
+                Transform::from_translation(pos + car_wheel_l_pos).with_rotation(wheel_rot),
+                MassPropertiesBundle::from_shape(&wheel_capsule, 0.1),
+            ))
+            .id();
+
+        let car_object = commands
+            .spawn((
+                RigidBody::Dynamic,
+                Collider::round_cuboid(
+                    (xs - radius) * 2.0,
+                    (ys - radius) * 2.0,
+                    (zs - radius) * 2.0,
+                    radius,
+                ),
+                // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
+                Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
+                MeshMaterial3d(materials.add(Color::from(css::BLUE))),
+                Transform::from_xyz(pos.x, pos.y, pos.z).with_rotation(Quat::from_rotation_x(0.0)),
+                car,
+                ExternalForce::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
+                ExternalImpulse::new(Vec3::new(0.0, 0.0, 0.0)).with_persistence(false),
+            ))
+            .id();
+
+        if true {
+            // These are forcing the capsules into new orientations instead of using the
+            // orientations I set above, and the physics explodes if I attach both
+
+            commands.spawn(
+                RevoluteJoint::new(car_object, wheel_r)
+                    .with_local_anchor_1(car_wheel_r_pos)
+                    .with_aligned_axis(Vector::X),
+            );
+
+            /*
+            commands.spawn(
+                RevoluteJoint::new(car_object, wheel_l)
+                    .with_local_anchor_1(car_wheel_l_pos)
+                    .with_aligned_axis(Vector::X),
+            );
+            */
+        }
+
+        println!("spawned car id: {}", car_object);
     }
 }
 
@@ -398,7 +464,7 @@ pub fn camera_car_update(
 
     let target = car_camera.offset + car.translation();
     let delta = target - camera_transform.translation;
-    camera_transform.translation += delta * 0.02;
+    camera_transform.translation += delta * 0.04;
     // println!("camera {:?}", camera_transform);
 }
 
@@ -408,7 +474,8 @@ pub fn control_car(key_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut C
             car.throttle += 0.1;
         }
         if key_input.pressed(KeyCode::ArrowDown) {
-            car.brake += 0.1;
+            // car.brake += 0.1;
+            car.throttle -= 0.8;
         }
         if key_input.pressed(KeyCode::ArrowLeft) {
             car.steering_angle += 0.05;
@@ -436,29 +503,27 @@ pub fn car_suspension(
         // TODO(lucasw) car.update_suspension()
         let car_filter = SpatialQueryFilter::default().with_excluded_entities([car_entity]);
         car.lidar_update(&spatial_query, car_tf); // , &car_filter);
-        let wheel_radius = 0.5;
-        let wheel_y = car.ys - wheel_radius;
 
         // println!("{:?} {external_impulse:?}", car_tf.translation());
         // four wheels
         // TODO(lucasw) need to use Car size as set above in xs, ys, & zs
         let wheel_positions = vec![
             car_tf.translation()
-                + car_tf.forward() * car.zs * 0.8
-                + car_tf.down() * wheel_y
-                + car_tf.left() * car.xs,
+                + car_tf.forward() * car.wheel.z
+                + car_tf.up() * car.wheel.y
+                + car_tf.left() * car.wheel.x,
             car_tf.translation()
-                + car_tf.forward() * car.zs * 0.8
-                + car_tf.down() * wheel_y
-                + car_tf.right() * car.xs,
+                + car_tf.forward() * car.wheel.z
+                + car_tf.up() * car.wheel.y
+                + car_tf.right() * car.wheel.x,
             car_tf.translation()
-                + car_tf.back() * car.zs * 0.8
-                + car_tf.down() * wheel_y
-                + car_tf.left() * car.xs,
+                + car_tf.back() * car.wheel.z
+                + car_tf.up() * car.wheel.y
+                + car_tf.left() * car.wheel.x,
             car_tf.translation()
-                + car_tf.back() * car.zs * 0.8
-                + car_tf.down() * wheel_y
-                + car_tf.right() * car.xs,
+                + car_tf.back() * car.wheel.z
+                + car_tf.up() * car.wheel.y
+                + car_tf.right() * car.wheel.x,
         ];
         // println!("{:?}", car);
         for (ind, wheel_pos) in wheel_positions.into_iter().enumerate() {
@@ -492,7 +557,7 @@ pub fn car_suspension(
                 // let impulse = hit.normal * impulse_magnitude;
                 let impulse = up * compression_filtered * 0.05;
                 // external_impulse.apply_impulse(impulse);
-                external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
+                // external_impulse.apply_impulse_at_point(impulse, wheel_pos, car_tf.translation());
 
                 let contact_point = wheel_pos + dir * hit.distance;
                 // println!("contact_point {contact_point} {impulse}");
@@ -518,11 +583,11 @@ pub fn car_suspension(
             }
 
             {
-                let pos = wheel_pos + (max_length - car.compression[ind] - wheel_radius) * dir;
+                let pos = wheel_pos + (max_length - car.compression[ind] - car.wheel_radius) * dir;
                 car.rec
                     .log(
                         format!("world/wheel{ind}"),
-                        &rerun::Capsules3D::from_lengths_and_radii([0.2], [wheel_radius])
+                        &rerun::Capsules3D::from_lengths_and_radii([0.2], [car.wheel_radius])
                             .with_translations([bevy_vec3_to_rerun_vec3d(&pos)]),
                     )
                     .unwrap();
