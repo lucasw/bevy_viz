@@ -1,3 +1,4 @@
+use bevy::app::AppExit;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use bevy::render::{
@@ -6,6 +7,11 @@ use bevy::render::{
 };
 use bevy::window;
 use bevy_rapier3d::prelude::*;
+
+fn exit_system(mut exit: EventWriter<AppExit>) {
+    println!("exiting vs system");
+    exit.send(AppExit::Success);
+}
 
 #[derive(Component)]
 pub struct Car {
@@ -77,7 +83,7 @@ impl Car {
         )
         .unwrap();
 
-        let wheel_radius = 1.5;
+        let wheel_radius = 1.0;
         let wheel = Vec3::new(xs * 1.1, -ys + wheel_radius - 1.2, zs * 0.9);
 
         Car {
@@ -127,7 +133,7 @@ impl Car {
 
         // TODO(lucasw) only apply this to wheels that are touching the ground?
         // TODO(lucasw) apply less force in proportion to velocity, most when at a standstill
-        let force = forward * self.throttle * 45.0;
+        let force = forward * self.throttle * 345.0;
         // println!("car control force {force:?}");
         // TODO(lucasw) not ackermann at all, just get some relationship
         // between steer 'angle' and actually turning
@@ -141,7 +147,7 @@ impl Car {
 
         // TODO(lucasw) temporary, shift the car sideways instead of steering
         {
-            let force = -self.steering_angle * 42.0;
+            let force = -self.steering_angle * 342.0;
             // external_force.apply_force(rotation * Vec3::X * force);
             force_torque.force += right * force;
         }
@@ -185,7 +191,7 @@ impl Car {
 
         for angle_degrees in (0..360).step_by(5) {
             let angle = (angle_degrees as f32).to_radians();
-            for elevation_angle_degrees in (-40..20i32).step_by(5) {
+            for elevation_angle_degrees in (-40..20i32).step_by(2) {
                 let elevation = (elevation_angle_degrees as f32).to_radians();
 
                 let ray_vec_in_body = Vec3::new(
@@ -358,7 +364,7 @@ pub fn setup_physics(
                 commands.spawn((
                     // RigidBody::Static,
                     RigidBody::Fixed,
-                    Collider::capsule_x(length * 0.5, radius),
+                    Collider::capsule_y(length * 1.0, radius),
                     Mesh3d(meshes.add(Capsule3d::new(radius, length))),
                     MeshMaterial3d(materials.add(Color::from(css::BEIGE))),
                     Transform::from_xyz(0.0, -radius * 0.75, -(i + 3.5) * 24.0).with_rotation(
@@ -378,20 +384,21 @@ pub fn setup_physics(
         let xs = 2.0; // left/right
         let ys = 0.75; // up/down
         let zs = 4.0; // forward/back
-        let radius = ys * 0.9;
+        let radius = ys * 0.5;
 
         let car = Car::new(xs, ys, zs, rec);
         let wheel_width = 2.5;
 
-        let wheel_capsule = Capsule3d::new(car.wheel_radius, wheel_width / 2.0);
-        let wheel_mesh = meshes.add(wheel_capsule);
+        let wheel_capsule = Capsule3d::new(car.wheel_radius, wheel_width - radius);
+        let wheel_collider = Collider::capsule_y(wheel_width * 0.5 - radius, car.wheel_radius);
+        // let wheel_mesh = meshes.add(wheel_capsule);
 
-        let wheel_rot = Quat::from_axis_angle(Vec3::Z, std::f32::consts::PI / 2.0);
-        let car_wheel_r_pos = Vec3::new(car.wheel.x + wheel_width, car.wheel.y, car.wheel.z);
+        let wheel_rot = Quat::from_axis_angle(Vec3::Z, 0.0); // Vec3::Z, std::f32::consts::PI / 2.0);
+        let car_wheel_r_pos = Vec3::new(car.wheel.x + wheel_width + 2.0, car.wheel.y, car.wheel.z);
         let wheel_r = commands
             .spawn((
                 RigidBody::Dynamic,
-                Collider::capsule_x(wheel_width * 0.5, car.wheel_radius),
+                wheel_collider.clone(),
                 Mesh3d(meshes.add(wheel_capsule)),
                 MeshMaterial3d(materials.add(Color::from(css::BLACK))),
                 Transform::from_translation(pos + car_wheel_r_pos).with_rotation(wheel_rot),
@@ -400,11 +407,11 @@ pub fn setup_physics(
             ))
             .id();
 
-        let car_wheel_l_pos = Vec3::new(-car.wheel.x - wheel_width, car.wheel.y, car.wheel.z);
+        let car_wheel_l_pos = Vec3::new(-car.wheel.x - wheel_width - 2.0, car.wheel.y, car.wheel.z);
         let wheel_l = commands
             .spawn((
                 RigidBody::Dynamic,
-                Collider::capsule_x(wheel_width * 0.5, car.wheel_radius),
+                wheel_collider,
                 Mesh3d(meshes.add(wheel_capsule)),
                 MeshMaterial3d(materials.add(Color::from(css::WHITE))),
                 Transform::from_translation(pos + car_wheel_l_pos).with_rotation(wheel_rot),
@@ -415,12 +422,7 @@ pub fn setup_physics(
         let car_object = commands
             .spawn((
                 RigidBody::Dynamic,
-                Collider::round_cuboid(
-                    (xs - radius) * 2.0,
-                    (ys - radius) * 2.0,
-                    (zs - radius) * 2.0,
-                    radius,
-                ),
+                Collider::round_cuboid((xs - radius), (ys - radius), (zs - radius), radius),
                 // ColliderDebugColor(Hsla::hsl(220.0, 1.0, 0.3)),
                 Mesh3d(meshes.add(Cuboid::new(xs * 2.0, ys * 2.0, zs * 2.0))),
                 MeshMaterial3d(materials.add(Color::from(css::BLUE))),
@@ -435,8 +437,9 @@ pub fn setup_physics(
             // These are forcing the capsules into new orientations instead of using the
             // orientations I set above, and the physics explodes if I attach both
 
-            commands.entity(car_object).insert(ImpulseJoint::new(
-                wheel_r,
+            // child entity first
+            commands.entity(wheel_r).insert(ImpulseJoint::new(
+                car_object, // parent entity
                 RevoluteJointBuilder::new(Vec3::X).local_anchor1(car_wheel_r_pos),
             ));
 
@@ -627,7 +630,7 @@ pub fn car_suspension(
                 let pos = wheel_pos + (max_length - car.compression[ind] - car.wheel_radius) * dir;
                 car.rec
                     .log(
-                        format!("world/wheel{ind}"),
+                        format!("world/wheel/w{ind}"),
                         &rerun::Capsules3D::from_lengths_and_radii([0.2], [car.wheel_radius])
                             .with_translations([bevy_vec3_to_rerun_vec3d(&pos)]),
                     )
